@@ -275,6 +275,7 @@ const importCSVRows = async (groupId, rows, creatorId) => {
         toUser: toUserObj._id,
         amount: Math.abs(convertedAmount), // Settlements are positive
         date: parsedDateObj,
+        rowNumber: rowNum,
       });
 
       actionTaken = `Imported directly into Settlement table: ${row.paid_by} to ${toUserObj.name || 'Unknown'}`;
@@ -374,7 +375,8 @@ const importCSVRows = async (groupId, rows, creatorId) => {
       date: parsedDateObj,
       createdBy: creatorId,
       notes: row.notes || '',
-      isSettlementFlag: false
+      isSettlementFlag: false,
+      rowNumber: rowNum
     });
 
     // Save in imported session list for duplicate checks in later rows

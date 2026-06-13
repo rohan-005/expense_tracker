@@ -25,6 +25,10 @@ const SettlementSchema = new mongoose.Schema({
     required: true,
     default: Date.now,
   },
+  rowNumber: {
+    type: Number,
+    default: null,
+  },
 }, {
   timestamps: { createdAt: 'created_at', updatedAt: false }
 });

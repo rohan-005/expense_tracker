@@ -60,6 +60,10 @@ const ExpenseSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  rowNumber: {
+    type: Number,
+    default: null,
+  },
 }, {
   timestamps: { createdAt: 'created_at', updatedAt: false }
 });

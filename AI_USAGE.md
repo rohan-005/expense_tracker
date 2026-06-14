@@ -3,7 +3,7 @@
 This document attributes the assistance provided by the Antigravity AI coding agent (developed by Google DeepMind) in building the Shared Expenses application.
 
 ## 🤖 AI Agent Details
-- **Agent Name**: Antigravity
+- **Agent Name**: Antigravity and Claude
 - **Capabilities**: Full-stack application building, test execution, database schema modeling, and layout styling.
 
 ## 🛠 Model Context Protocol (MCP) and Tools Utilized

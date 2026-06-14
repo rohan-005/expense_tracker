@@ -8,9 +8,6 @@ cd backend && npm install && cd ..
 echo "Installing frontend dependencies..."
 cd frontend && npm install && cd ..
 
-# Seed database
-echo "Seeding database..."
-cd backend && npm run seed && cd ..
 
 # Build frontend to support static serving if needed
 echo "Building frontend for static serving..."

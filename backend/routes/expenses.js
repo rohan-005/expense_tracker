@@ -4,7 +4,13 @@ const Expense = require('../models/Expense');
 const Split = require('../models/Split');
 const Comment = require('../models/Comment');
 const GroupMembership = require('../models/GroupMembership');
+const User = require('../models/User');
 const { protect } = require('../middleware/auth');
+
+// Helper for rounding to 2 decimals using round-half-up
+const round2 = (num) => {
+  return Math.round((num + Number.EPSILON) * 100) / 100;
+};
 
 // @desc    Get all active expenses in a group
 // @route   GET /api/expenses
@@ -17,24 +23,44 @@ router.get('/', protect, async (req, res) => {
     }
 
     // Check membership
-    const membership = await GroupMembership.findOne({ group: groupId, user: req.user._id });
+    const membership = await GroupMembership.findOne({
+      where: { groupId: groupId, userId: req.user.id }
+    });
     if (!membership) {
       return res.status(403).json({ message: 'Not authorized to view this group\'s expenses' });
     }
 
     // Find all active (non-soft-deleted) expenses
-    const expenses = await Expense.find({ group: groupId, isDeleted: false })
-      .populate('paidBy', 'name email avatar_url')
-      .populate('createdBy', 'name email avatar_url')
-      .sort({ date: -1, created_at: -1 });
+    const expenses = await Expense.findAll({
+      where: { groupId: groupId, isDeleted: false },
+      include: [
+        { model: User, as: 'paidBy', attributes: ['id', 'name', 'email', 'avatar_url'] },
+        { model: User, as: 'createdBy', attributes: ['id', 'name', 'email', 'avatar_url'] }
+      ],
+      order: [
+        ['date', 'DESC'],
+        ['created_at', 'DESC']
+      ]
+    });
 
     // For each expense, load its splits
     const expensesWithSplits = [];
     for (const exp of expenses) {
-      const splits = await Split.find({ expense: exp._id }).populate('user', 'name email avatar_url');
+      const splits = await Split.findAll({
+        where: { expenseId: exp.id },
+        include: [
+          { model: User, as: 'user', attributes: ['id', 'name', 'email', 'avatar_url'] }
+        ]
+      });
+
+      const expJson = exp.toJSON();
       expensesWithSplits.push({
-        ...exp.toObject(),
-        splits,
+        ...expJson,
+        _id: expJson.id,
+        splits: splits.map(s => {
+          const sJson = s.toJSON();
+          return { ...sJson, _id: sJson.id };
+        }),
       });
     }
 
@@ -50,40 +76,58 @@ router.get('/', protect, async (req, res) => {
 // @access  Private
 router.get('/:id', protect, async (req, res) => {
   try {
-    const expense = await Expense.findById(req.params.id)
-      .populate('paidBy', 'name email avatar_url')
-      .populate('createdBy', 'name email avatar_url');
+    const expense = await Expense.findByPk(req.params.id, {
+      include: [
+        { model: User, as: 'paidBy', attributes: ['id', 'name', 'email', 'avatar_url'] },
+        { model: User, as: 'createdBy', attributes: ['id', 'name', 'email', 'avatar_url'] }
+      ]
+    });
 
     if (!expense || expense.isDeleted) {
       return res.status(404).json({ message: 'Expense not found' });
     }
 
     // Check membership
-    const membership = await GroupMembership.findOne({ group: expense.group, user: req.user._id });
+    const membership = await GroupMembership.findOne({
+      where: { groupId: expense.groupId, userId: req.user.id }
+    });
     if (!membership) {
       return res.status(403).json({ message: 'Not authorized' });
     }
 
-    const splits = await Split.find({ expense: expense._id }).populate('user', 'name email avatar_url');
-    const comments = await Comment.find({ expense: expense._id })
-      .populate('user', 'name email avatar_url')
-      .sort({ created_at: 1 });
+    const splits = await Split.findAll({
+      where: { expenseId: expense.id },
+      include: [
+        { model: User, as: 'user', attributes: ['id', 'name', 'email', 'avatar_url'] }
+      ]
+    });
 
+    const comments = await Comment.findAll({
+      where: { expenseId: expense.id },
+      include: [
+        { model: User, as: 'user', attributes: ['id', 'name', 'email', 'avatar_url'] }
+      ],
+      order: [['created_at', 'ASC']]
+    });
+
+    const expJson = expense.toJSON();
     res.json({
-      ...expense.toObject(),
-      splits,
-      comments,
+      ...expJson,
+      _id: expJson.id,
+      splits: splits.map(s => {
+        const sJson = s.toJSON();
+        return { ...sJson, _id: sJson.id };
+      }),
+      comments: comments.map(c => {
+        const cJson = c.toJSON();
+        return { ...cJson, _id: cJson.id };
+      }),
     });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error retrieving expense details' });
   }
 });
-
-// Helper for rounding to 2 decimals using round-half-up
-const round2 = (num) => {
-  return Math.round((num + Number.EPSILON) * 100) / 100;
-};
 
 // @desc    Create a new expense
 // @route   POST /api/expenses
@@ -99,7 +143,7 @@ router.post('/', protect, async (req, res) => {
       paidBy,
       date,
       notes,
-      splitsData, // [{ userId: string, val: number }] or [userIds]
+      splitsData, // [{ userId: number, val: number }] or [userIds]
     } = req.body;
 
     if (!groupId || !description || amount === undefined || !paidBy) {
@@ -107,7 +151,9 @@ router.post('/', protect, async (req, res) => {
     }
 
     // Check membership
-    const isMember = await GroupMembership.findOne({ group: groupId, user: req.user._id });
+    const isMember = await GroupMembership.findOne({
+      where: { groupId: groupId, userId: req.user.id }
+    });
     if (!isMember) {
       return res.status(403).json({ message: 'Not authorized to add expenses to this group' });
     }
@@ -119,16 +165,16 @@ router.post('/', protect, async (req, res) => {
     const convertedAmount = round2(baseAmount);
 
     const expense = await Expense.create({
-      group: groupId,
+      groupId,
       description,
       amount,
       currency: currency || 'INR',
       exchangeRate: rate,
       convertedAmount,
       splitType: splitType || 'equal',
-      paidBy,
+      paidById: paidBy,
       date: date ? new Date(date) : new Date(),
-      createdBy: req.user._id,
+      createdById: req.user.id,
       notes: notes || '',
     });
 
@@ -150,13 +196,13 @@ router.post('/', protect, async (req, res) => {
         }
         sum += owed;
         computedSplits.push({
-          expense: expense._id,
-          user: uId,
+          expenseId: expense.id,
+          userId: uId,
           amountOwed: owed,
         });
       });
     } else if (splitType === 'unequal') {
-      // splitsData is array of { userId, val } (val is amount in currency)
+      // splitsData is array of { userId, val }
       const data = Array.isArray(splitsData) ? splitsData : [];
       let sum = 0;
       data.forEach((item, idx) => {
@@ -164,27 +210,26 @@ router.post('/', protect, async (req, res) => {
         const owed = round2(itemBase);
         sum += owed;
         computedSplits.push({
-          expense: expense._id,
-          user: item.userId,
+          expenseId: expense.id,
+          userId: item.userId,
           amountOwed: owed,
         });
       });
-      // Adjust last item rounding to make sure sum matches convertedAmount
+      // Adjust last item rounding
       if (computedSplits.length > 0 && Math.abs(sum - convertedAmount) > 0.01) {
         const lastIdx = computedSplits.length - 1;
         const diff = round2(convertedAmount - (sum - computedSplits[lastIdx].amountOwed));
         computedSplits[lastIdx].amountOwed = diff;
       }
     } else if (splitType === 'percentage') {
-      // splitsData is array of { userId, val } (val is percentage, e.g. 30)
       const data = Array.isArray(splitsData) ? splitsData : [];
       let sum = 0;
       data.forEach((item, idx) => {
         let owed = round2((convertedAmount * item.val) / 100);
         sum += owed;
         computedSplits.push({
-          expense: expense._id,
-          user: item.userId,
+          expenseId: expense.id,
+          userId: item.userId,
           amountOwed: owed,
         });
       });
@@ -194,7 +239,6 @@ router.post('/', protect, async (req, res) => {
         computedSplits[lastIdx].amountOwed = diff;
       }
     } else if (splitType === 'share') {
-      // splitsData is array of { userId, val } (val is shares, e.g. 2)
       const data = Array.isArray(splitsData) ? splitsData : [];
       const totalShares = data.reduce((acc, curr) => acc + curr.val, 0);
       if (totalShares === 0) {
@@ -205,8 +249,8 @@ router.post('/', protect, async (req, res) => {
         let owed = round2((convertedAmount * item.val) / totalShares);
         sum += owed;
         computedSplits.push({
-          expense: expense._id,
-          user: item.userId,
+          expenseId: expense.id,
+          userId: item.userId,
           amountOwed: owed,
         });
       });
@@ -218,18 +262,31 @@ router.post('/', protect, async (req, res) => {
     }
 
     // Save all splits
-    await Split.insertMany(computedSplits);
+    await Split.bulkCreate(computedSplits);
 
-    // Fetch complete expense object with splits populated to return
-    const fullExpense = await Expense.findById(expense._id)
-      .populate('paidBy', 'name email avatar_url')
-      .populate('createdBy', 'name email avatar_url');
-    
-    const splits = await Split.find({ expense: expense._id }).populate('user', 'name email avatar_url');
+    // Fetch complete expense object to return
+    const fullExpense = await Expense.findByPk(expense.id, {
+      include: [
+        { model: User, as: 'paidBy', attributes: ['id', 'name', 'email', 'avatar_url'] },
+        { model: User, as: 'createdBy', attributes: ['id', 'name', 'email', 'avatar_url'] }
+      ]
+    });
 
+    const splits = await Split.findAll({
+      where: { expenseId: expense.id },
+      include: [
+        { model: User, as: 'user', attributes: ['id', 'name', 'email', 'avatar_url'] }
+      ]
+    });
+
+    const expJson = fullExpense.toJSON();
     res.status(201).json({
-      ...fullExpense.toObject(),
-      splits,
+      ...expJson,
+      _id: expJson.id,
+      splits: splits.map(s => {
+        const sJson = s.toJSON();
+        return { ...sJson, _id: sJson.id };
+      }),
     });
   } catch (error) {
     console.error(error);
@@ -242,13 +299,15 @@ router.post('/', protect, async (req, res) => {
 // @access  Private
 router.delete('/:id', protect, async (req, res) => {
   try {
-    const expense = await Expense.findById(req.params.id);
+    const expense = await Expense.findByPk(req.params.id);
     if (!expense) {
       return res.status(404).json({ message: 'Expense not found' });
     }
 
     // Check membership
-    const membership = await GroupMembership.findOne({ group: expense.group, user: req.user._id });
+    const membership = await GroupMembership.findOne({
+      where: { groupId: expense.groupId, userId: req.user.id }
+    });
     if (!membership) {
       return res.status(403).json({ message: 'Not authorized' });
     }
@@ -256,7 +315,7 @@ router.delete('/:id', protect, async (req, res) => {
     expense.isDeleted = true;
     await expense.save();
 
-    res.json({ message: 'Expense deleted successfully', id: expense._id });
+    res.json({ message: 'Expense deleted successfully', id: expense.id });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error deleting expense' });
@@ -273,31 +332,40 @@ router.post('/:id/comments', protect, async (req, res) => {
       return res.status(400).json({ message: 'Message is required' });
     }
 
-    const expense = await Expense.findById(req.params.id);
+    const expense = await Expense.findByPk(req.params.id);
     if (!expense || expense.isDeleted) {
       return res.status(404).json({ message: 'Expense not found' });
     }
 
     // Check membership
-    const membership = await GroupMembership.findOne({ group: expense.group, user: req.user._id });
+    const membership = await GroupMembership.findOne({
+      where: { groupId: expense.groupId, userId: req.user.id }
+    });
     if (!membership) {
       return res.status(403).json({ message: 'Not authorized' });
     }
 
     const comment = await Comment.create({
-      expense: expense._id,
-      user: req.user._id,
+      expenseId: expense.id,
+      userId: req.user.id,
       message,
     });
 
-    const populatedComment = await Comment.findById(comment._id).populate('user', 'name email avatar_url');
+    const populatedComment = await Comment.findByPk(comment.id, {
+      include: [
+        { model: User, as: 'user', attributes: ['id', 'name', 'email', 'avatar_url'] }
+      ]
+    });
+
+    const cJson = populatedComment.toJSON();
+    const responseComment = { ...cJson, _id: cJson.id };
 
     // Notify other sockets in the room
     if (req.io) {
-      req.io.to(req.params.id).emit('new_comment', populatedComment);
+      req.io.to(req.params.id).emit('new_comment', responseComment);
     }
 
-    res.status(201).json(populatedComment);
+    res.status(201).json(responseComment);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error posting comment' });

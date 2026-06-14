@@ -1,71 +1,99 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/db');
+const User = require('./User');
+const Group = require('./Group');
 
-const ExpenseSchema = new mongoose.Schema({
-  group: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Group',
-    required: true,
+const Expense = sequelize.define('Expense', {
+  id: {
+    type: DataTypes.INTEGER,
+    autoIncrement: true,
+    primaryKey: true,
+  },
+  groupId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: Group,
+      key: 'id',
+    },
   },
   description: {
-    type: String,
-    required: true,
-    trim: true,
+    type: DataTypes.STRING,
+    allowNull: false,
   },
   amount: {
-    type: Number,
-    required: true,
+    type: DataTypes.DOUBLE,
+    allowNull: false,
   },
   currency: {
-    type: String,
-    required: true,
-    default: 'INR',
+    type: DataTypes.STRING,
+    allowNull: false,
+    defaultValue: 'INR',
   },
   exchangeRate: {
-    type: Number,
-    default: null,
+    type: DataTypes.DOUBLE,
+    allowNull: true,
   },
   convertedAmount: {
-    type: Number,
-    required: true, // in base currency (INR)
+    type: DataTypes.DOUBLE,
+    allowNull: false,
   },
   splitType: {
-    type: String,
-    enum: ['equal', 'unequal', 'percentage', 'share'],
-    default: 'equal',
+    type: DataTypes.STRING,
+    allowNull: false,
+    defaultValue: 'equal',
   },
-  paidBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true,
+  paidById: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: User,
+      key: 'id',
+    },
   },
   date: {
-    type: Date,
-    required: true,
-    default: Date.now,
+    type: DataTypes.DATE,
+    allowNull: false,
+    defaultValue: DataTypes.NOW,
   },
-  createdBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true,
+  createdById: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: User,
+      key: 'id',
+    },
   },
   isDeleted: {
-    type: Boolean,
-    default: false,
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
   },
   notes: {
-    type: String,
-    default: '',
+    type: DataTypes.TEXT,
+    allowNull: true,
+    defaultValue: '',
   },
   isSettlementFlag: {
-    type: Boolean,
-    default: false,
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
   },
   rowNumber: {
-    type: Number,
-    default: null,
+    type: DataTypes.INTEGER,
+    allowNull: true,
   },
 }, {
-  timestamps: { createdAt: 'created_at', updatedAt: false }
+  timestamps: true,
+  createdAt: 'created_at',
+  updatedAt: 'updated_at',
 });
 
-module.exports = mongoose.model('Expense', ExpenseSchema);
+// Associations
+Expense.belongsTo(Group, { as: 'group', foreignKey: 'groupId' });
+Expense.belongsTo(User, { as: 'paidBy', foreignKey: 'paidById' });
+Expense.belongsTo(User, { as: 'createdBy', foreignKey: 'createdById' });
+
+Group.hasMany(Expense, { foreignKey: 'groupId' });
+
+module.exports = Expense;

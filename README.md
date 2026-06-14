@@ -1,6 +1,6 @@
 # Spreetail Split — Shared Expenses Application
 
-A production-ready Splitwise-style MERN stack application built with Tailwind CSS, featuring real-time chat comments (via Socket.IO), dynamic balance calculation engines, and a robust, rule-based CSV importer with manual review logs.
+A production-ready Splitwise-style full-stack application built with Node.js/Express backend, SQLite database using Sequelize ORM, React frontend, Tailwind CSS, featuring real-time chat comments (via Socket.IO), dynamic balance calculation engines, and a robust, rule-based CSV importer with manual review logs.
 
 ## 🎨 Theme & Visual Design System
 Built strictly according to the design specifications:
@@ -27,10 +27,10 @@ Built strictly according to the design specifications:
 
 ### Prerequisites
 - Node.js (v18+)
-- MongoDB (running locally on port 27017 or running via Docker)
+- SQLite3 (installed automatically via npm package `sqlite3`)
 
 ### Installation & Run (Local Script)
-We provide a unified startup script `start.sh` that checks if MongoDB is running, installs all dependencies, seeds the database, builds production assets, and starts the development servers.
+We provide a unified startup script `start.sh` that installs all dependencies, seeds the local database, builds production assets, and starts the development servers.
 
 ```bash
 chmod +x start.sh
@@ -43,7 +43,7 @@ chmod +x start.sh
 ```bash
 cd backend
 npm install
-npm run seed     # Seeds the database with Aisha, Rohan, Priya, etc.
+npm run seed     # Seeds the local SQLite database at backend/database.sqlite
 npm run dev      # Starts the backend on http://localhost:5000
 ```
 
@@ -57,7 +57,7 @@ npm run dev      # Starts the frontend on http://localhost:5173
 ---
 
 ## 🐳 Docker Deployment
-Run the complete application along with a dedicated MongoDB instance inside Docker:
+Run the complete application inside Docker:
 
 ```bash
 docker-compose up --build

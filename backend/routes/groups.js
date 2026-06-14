@@ -14,25 +14,31 @@ const { protect } = require('../middleware/auth');
 // @access  Private
 router.get('/', protect, async (req, res) => {
   try {
-    const memberships = await GroupMembership.find({
-      user: req.user._id,
-      // Optional: you can filter active ones only, but typically we want all historical ones too
-    }).populate({
-      path: 'group',
-      populate: {
-        path: 'createdBy',
-        select: 'name email avatar_url'
-      }
+    const memberships = await GroupMembership.findAll({
+      where: { userId: req.user.id },
+      include: [
+        {
+          model: Group,
+          as: 'group',
+          include: [
+            { model: User, as: 'createdBy', attributes: ['id', 'name', 'email', 'avatar_url'] }
+          ]
+        }
+      ]
     });
 
     const groups = memberships
       .filter(m => m.group && m.group.isActive)
-      .map(m => ({
-        ...m.group.toObject(),
-        role: m.role,
-        joinDate: m.joinDate,
-        leaveDate: m.leaveDate,
-      }));
+      .map(m => {
+        const g = m.group.toJSON();
+        return {
+          ...g,
+          _id: g.id,
+          role: m.role,
+          joinDate: m.joinDate,
+          leaveDate: m.leaveDate,
+        };
+      });
 
     res.json(groups);
   } catch (error) {
@@ -55,18 +61,19 @@ router.post('/', protect, async (req, res) => {
     const group = await Group.create({
       name,
       category: category || 'Home',
-      createdBy: req.user._id,
+      createdById: req.user.id,
     });
 
     // Automatically create admin membership for the creator
     await GroupMembership.create({
-      group: group._id,
-      user: req.user._id,
+      groupId: group.id,
+      userId: req.user.id,
       role: 'admin',
       joinDate: new Date(),
     });
 
-    res.status(201).json(group);
+    const json = group.toJSON();
+    res.status(201).json({ ...json, _id: json.id });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error creating group' });
@@ -80,35 +87,51 @@ router.get('/:id', protect, async (req, res) => {
   try {
     // Check if user is a member of the group
     const membership = await GroupMembership.findOne({
-      group: req.params.id,
-      user: req.user._id,
+      where: {
+        groupId: req.params.id,
+        userId: req.user.id,
+      }
     });
 
     if (!membership) {
       return res.status(403).json({ message: 'Not authorized to view this group' });
     }
 
-    const group = await Group.findById(req.params.id).populate('createdBy', 'name email avatar_url');
+    const group = await Group.findByPk(req.params.id, {
+      include: [
+        { model: User, as: 'createdBy', attributes: ['id', 'name', 'email', 'avatar_url'] }
+      ]
+    });
     if (!group || !group.isActive) {
       return res.status(404).json({ message: 'Group not found' });
     }
 
     // Get all memberships in the group
-    const allMemberships = await GroupMembership.find({ group: group._id })
-      .populate('user', 'name email avatar_url');
+    const allMemberships = await GroupMembership.findAll({
+      where: { groupId: group.id },
+      include: [
+        { model: User, as: 'user', attributes: ['id', 'name', 'email', 'avatar_url'] }
+      ]
+    });
 
-    const members = allMemberships.map(m => ({
-      _id: m.user._id,
-      name: m.user.name,
-      email: m.user.email,
-      avatar_url: m.user.avatar_url,
-      role: m.role,
-      joinDate: m.joinDate,
-      leaveDate: m.leaveDate,
-    }));
+    const members = allMemberships.map(m => {
+      const u = m.user.toJSON();
+      return {
+        id: u.id,
+        _id: u.id,
+        name: u.name,
+        email: u.email,
+        avatar_url: u.avatar_url,
+        role: m.role,
+        joinDate: m.joinDate,
+        leaveDate: m.leaveDate,
+      };
+    });
 
+    const groupJson = group.toJSON();
     res.json({
-      ...group.toObject(),
+      ...groupJson,
+      _id: groupJson.id,
       members,
     });
   } catch (error) {
@@ -128,46 +151,53 @@ router.post('/:id/members', protect, async (req, res) => {
       return res.status(400).json({ message: 'Member email is required' });
     }
 
-    // Check if current user is member (or admin, depending on strictness - let's allow members to invite too, or only admin)
+    // Check if current user is member
     const requesterMembership = await GroupMembership.findOne({
-      group: req.params.id,
-      user: req.user._id,
+      where: {
+        groupId: req.params.id,
+        userId: req.user.id,
+      }
     });
 
     if (!requesterMembership) {
       return res.status(403).json({ message: 'Not authorized to manage this group' });
     }
 
-    const targetUser = await User.findOne({ email: email.toLowerCase().trim() });
+    const targetUser = await User.findOne({
+      where: { email: email.toLowerCase().trim() }
+    });
     if (!targetUser) {
       return res.status(404).json({ message: 'User with this email not found' });
     }
 
     // Check if already a member
     const existingMembership = await GroupMembership.findOne({
-      group: req.params.id,
-      user: targetUser._id,
+      where: {
+        groupId: req.params.id,
+        userId: targetUser.id,
+      }
     });
 
     if (existingMembership) {
-      // If they left earlier, we can reactivate them or return error. Let's reactivate by clearing leaveDate if they left.
       if (existingMembership.leaveDate) {
         existingMembership.leaveDate = null;
         existingMembership.joinDate = joinDate ? new Date(joinDate) : new Date();
         await existingMembership.save();
-        return res.json({ message: 'Member reactivated successfully', membership: existingMembership });
+        const json = existingMembership.toJSON();
+        return res.json({ message: 'Member reactivated successfully', membership: { ...json, _id: json.id } });
       }
       return res.status(400).json({ message: 'User is already a member of this group' });
     }
 
     const newMembership = await GroupMembership.create({
-      group: req.params.id,
-      user: targetUser._id,
+      groupId: req.params.id,
+      userId: targetUser.id,
       role: role || 'member',
       joinDate: joinDate ? new Date(joinDate) : new Date(),
     });
 
-    res.status(201).json(newMembership);
+    const json = newMembership.toJSON();
+    res.status(201).json({ ...json, _id: json.id });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error adding member' });
@@ -181,8 +211,10 @@ router.put('/:id/members/:userId/leave', protect, async (req, res) => {
   try {
     // Check requester is in group
     const requesterMembership = await GroupMembership.findOne({
-      group: req.params.id,
-      user: req.user._id,
+      where: {
+        groupId: req.params.id,
+        userId: req.user.id,
+      }
     });
 
     if (!requesterMembership) {
@@ -190,8 +222,10 @@ router.put('/:id/members/:userId/leave', protect, async (req, res) => {
     }
 
     const membershipToUpdate = await GroupMembership.findOne({
-      group: req.params.id,
-      user: req.params.userId,
+      where: {
+        groupId: req.params.id,
+        userId: req.params.userId,
+      }
     });
 
     if (!membershipToUpdate) {
@@ -201,7 +235,8 @@ router.put('/:id/members/:userId/leave', protect, async (req, res) => {
     membershipToUpdate.leaveDate = new Date();
     await membershipToUpdate.save();
 
-    res.json({ message: 'Member successfully marked as left', membership: membershipToUpdate });
+    const json = membershipToUpdate.toJSON();
+    res.json({ message: 'Member successfully marked as left', membership: { ...json, _id: json.id } });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error updating membership status' });
@@ -216,21 +251,33 @@ router.get('/:id/balances', protect, async (req, res) => {
     const groupId = req.params.id;
 
     // Verify membership
-    const userMembership = await GroupMembership.findOne({ group: groupId, user: req.user._id });
+    const userMembership = await GroupMembership.findOne({
+      where: { groupId: groupId, userId: req.user.id }
+    });
     if (!userMembership) {
       return res.status(403).json({ message: 'Not authorized to view balances of this group' });
     }
 
     // Get all members of the group
-    const memberships = await GroupMembership.find({ group: groupId }).populate('user', 'name email avatar_url');
-    const members = memberships.map(m => m.user);
+    const memberships = await GroupMembership.findAll({
+      where: { groupId: groupId },
+      include: [
+        { model: User, as: 'user', attributes: ['id', 'name', 'email', 'avatar_url'] }
+      ]
+    });
+    const members = memberships.map(m => {
+      const u = m.user.toJSON();
+      return { ...u, _id: u.id };
+    });
 
     // Get all pending review imports to exclude their row numbers
-    const pendingLogs = await ImportLog.find({ status: 'pending_review' });
+    const pendingLogs = await ImportLog.findAll({ where: { status: 'pending_review' } });
     const pendingRowNumbers = new Set(pendingLogs.map(l => l.rowNumber));
 
     // Get all active, non-deleted expenses
-    const expenses = await Expense.find({ group: groupId, isDeleted: false });
+    const expenses = await Expense.findAll({
+      where: { groupId: groupId, isDeleted: false }
+    });
     const activeExpenses = expenses.filter(e => {
       if (e.rowNumber !== null && pendingRowNumbers.has(e.rowNumber)) {
         return false;
@@ -238,16 +285,18 @@ router.get('/:id/balances', protect, async (req, res) => {
       return true;
     });
 
-    const activeExpenseIds = activeExpenses.map(e => e._id);
+    const activeExpenseIds = activeExpenses.map(e => e.id);
 
     // Get splits for active expenses
-    const splits = await Split.find({ expense: { $in: activeExpenseIds } }).populate({
-      path: 'expense',
-      select: 'paidBy date'
+    const splits = await Split.findAll({
+      where: { expenseId: activeExpenseIds },
+      include: [
+        { model: Expense, as: 'expense', attributes: ['paidById', 'date'] }
+      ]
     });
 
     // Get settlements
-    const allSettlements = await Settlement.find({ group: groupId });
+    const allSettlements = await Settlement.findAll({ where: { groupId: groupId } });
     const activeSettlements = allSettlements.filter(s => {
       if (s.rowNumber !== null && pendingRowNumbers.has(s.rowNumber)) {
         return false;
@@ -258,7 +307,7 @@ router.get('/:id/balances', protect, async (req, res) => {
     // User maps
     const userIdToMembership = {};
     memberships.forEach(m => {
-      userIdToMembership[m.user._id.toString()] = m;
+      userIdToMembership[m.userId.toString()] = m;
     });
 
     const splitsPaidByAForB = {}; // key: "userA_userB" -> amount
@@ -270,22 +319,22 @@ router.get('/:id/balances', protect, async (req, res) => {
     // Process splits
     splits.forEach(sp => {
       if (!sp.expense) return;
-      const payerId = sp.expense.paidBy.toString();
-      const debtorId = sp.user.toString();
-      const expenseDate = sp.expense.date;
+      const payerId = sp.expense.paidById.toString();
+      const debtorId = sp.userId.toString();
+      const expenseDate = new Date(sp.expense.date);
 
       // Check debtor membership dates
       const debtorMembership = userIdToMembership[debtorId];
       if (debtorMembership) {
-        if (debtorMembership.leaveDate && expenseDate > debtorMembership.leaveDate) return;
-        if (debtorMembership.joinDate && expenseDate < debtorMembership.joinDate) return;
+        if (debtorMembership.leaveDate && expenseDate > new Date(debtorMembership.leaveDate)) return;
+        if (debtorMembership.joinDate && expenseDate < new Date(debtorMembership.joinDate)) return;
       }
 
       // Check payer membership dates
       const payerMembership = userIdToMembership[payerId];
       if (payerMembership) {
-        if (payerMembership.leaveDate && expenseDate > payerMembership.leaveDate) return;
-        if (payerMembership.joinDate && expenseDate < payerMembership.joinDate) return;
+        if (payerMembership.leaveDate && expenseDate > new Date(payerMembership.leaveDate)) return;
+        if (payerMembership.joinDate && expenseDate < new Date(payerMembership.joinDate)) return;
       }
 
       if (payerId === debtorId) return;
@@ -296,8 +345,8 @@ router.get('/:id/balances', protect, async (req, res) => {
 
     // Process settlements
     activeSettlements.forEach(se => {
-      const fromId = se.fromUser.toString();
-      const toId = se.toUser.toString();
+      const fromId = se.fromUserId.toString();
+      const toId = se.toUserId.toString();
       const key = getPairKey(fromId, toId);
       settlementsFromAToB[key] = (settlementsFromAToB[key] || 0) + se.amount;
     });
@@ -307,15 +356,15 @@ router.get('/:id/balances', protect, async (req, res) => {
     const netBalances = {}; // userId -> overall net balance
 
     members.forEach(u => {
-      netBalances[u._id.toString()] = 0;
+      netBalances[u.id.toString()] = 0;
     });
 
     const round2 = (num) => Math.round((num + Number.EPSILON) * 100) / 100;
 
     for (let i = 0; i < members.length; i++) {
       for (let j = i + 1; j < members.length; j++) {
-        const uA = members[i]._id.toString();
-        const uB = members[j]._id.toString();
+        const uA = members[i].id.toString();
+        const uB = members[j].id.toString();
 
         const s_A_for_B = splitsPaidByAForB[getPairKey(uA, uB)] || 0;
         const s_B_for_A = splitsPaidByAForB[getPairKey(uB, uA)] || 0;
@@ -341,7 +390,7 @@ router.get('/:id/balances', protect, async (req, res) => {
 
     const overallBalances = members.map(u => ({
       user: u,
-      netBalance: netBalances[u._id.toString()] || 0
+      netBalance: netBalances[u.id.toString()] || 0
     }));
 
     res.json({

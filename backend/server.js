@@ -3,7 +3,7 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const http = require('http');
 const socketIo = require('socket.io');
-const connectDB = require('./config/db');
+const { connectDB } = require('./config/db');
 
 // Load environment variables
 dotenv.config();

@@ -1,27 +1,42 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/db');
+const User = require('./User');
 
-const GroupSchema = new mongoose.Schema({
+const Group = sequelize.define('Group', {
+  id: {
+    type: DataTypes.INTEGER,
+    autoIncrement: true,
+    primaryKey: true,
+  },
   name: {
-    type: String,
-    required: true,
-    trim: true,
+    type: DataTypes.STRING,
+    allowNull: false,
   },
   category: {
-    type: String,
-    required: true,
-    default: 'Home',
+    type: DataTypes.STRING,
+    allowNull: false,
+    defaultValue: 'Home',
   },
-  createdBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true,
+  createdById: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: User,
+      key: 'id',
+    },
   },
   isActive: {
-    type: Boolean,
-    default: true,
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: true,
   },
 }, {
-  timestamps: { createdAt: 'created_at', updatedAt: false }
+  timestamps: true,
+  createdAt: 'created_at',
+  updatedAt: 'updated_at',
 });
 
-module.exports = mongoose.model('Group', GroupSchema);
+// Associations
+Group.belongsTo(User, { as: 'createdBy', foreignKey: 'createdById' });
+
+module.exports = Group;

@@ -1,36 +1,62 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/db');
+const User = require('./User');
+const Group = require('./Group');
 
-const SettlementSchema = new mongoose.Schema({
-  group: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Group',
-    required: true,
+const Settlement = sequelize.define('Settlement', {
+  id: {
+    type: DataTypes.INTEGER,
+    autoIncrement: true,
+    primaryKey: true,
   },
-  fromUser: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true,
+  groupId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: Group,
+      key: 'id',
+    },
   },
-  toUser: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true,
+  fromUserId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: User,
+      key: 'id',
+    },
+  },
+  toUserId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: User,
+      key: 'id',
+    },
   },
   amount: {
-    type: Number,
-    required: true, // in INR
+    type: DataTypes.DOUBLE,
+    allowNull: false,
   },
   date: {
-    type: Date,
-    required: true,
-    default: Date.now,
+    type: DataTypes.DATE,
+    allowNull: false,
+    defaultValue: DataTypes.NOW,
   },
   rowNumber: {
-    type: Number,
-    default: null,
+    type: DataTypes.INTEGER,
+    allowNull: true,
   },
 }, {
-  timestamps: { createdAt: 'created_at', updatedAt: false }
+  timestamps: true,
+  createdAt: 'created_at',
+  updatedAt: 'updated_at',
 });
 
-module.exports = mongoose.model('Settlement', SettlementSchema);
+// Associations
+Settlement.belongsTo(Group, { as: 'group', foreignKey: 'groupId' });
+Settlement.belongsTo(User, { as: 'fromUser', foreignKey: 'fromUserId' });
+Settlement.belongsTo(User, { as: 'toUser', foreignKey: 'toUserId' });
+
+Group.hasMany(Settlement, { foreignKey: 'groupId' });
+
+module.exports = Settlement;

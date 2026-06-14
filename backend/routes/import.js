@@ -5,9 +5,6 @@ const path = require('path');
 const csv = require('csv-parser');
 const ImportLog = require('../models/ImportLog');
 const Group = require('../models/Group');
-const GroupMembership = require('../models/GroupMembership');
-const Expense = require('../models/Expense');
-const Settlement = require('../models/Settlement');
 const { importCSVRows } = require('../utils/csvImporter');
 const { protect } = require('../middleware/auth');
 
@@ -16,8 +13,16 @@ const { protect } = require('../middleware/auth');
 // @access  Private
 router.get('/logs', protect, async (req, res) => {
   try {
-    const logs = await ImportLog.find({}).sort({ rowNumber: 1 });
-    res.json(logs);
+    const logs = await ImportLog.findAll({
+      order: [['rowNumber', 'ASC']]
+    });
+    
+    const response = logs.map(l => {
+      const json = l.toJSON();
+      return { ...json, _id: json.id };
+    });
+    
+    res.json(response);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error retrieving import logs' });
@@ -29,7 +34,7 @@ router.get('/logs', protect, async (req, res) => {
 // @access  Private
 router.delete('/logs', protect, async (req, res) => {
   try {
-    await ImportLog.deleteMany({});
+    await ImportLog.destroy({ where: {} });
     res.json({ message: 'All import logs cleared' });
   } catch (error) {
     console.error(error);
@@ -42,7 +47,7 @@ router.delete('/logs', protect, async (req, res) => {
 // @access  Private
 router.post('/logs/:id/resolve', protect, async (req, res) => {
   try {
-    const log = await ImportLog.findById(req.params.id);
+    const log = await ImportLog.findByPk(req.params.id);
     if (!log) {
       return res.status(404).json({ message: 'Import log not found' });
     }
@@ -51,7 +56,8 @@ router.post('/logs/:id/resolve', protect, async (req, res) => {
     log.actionTaken = `${log.actionTaken} (Manually Resolved)`;
     await log.save();
 
-    res.json(log);
+    const json = log.toJSON();
+    res.json({ ...json, _id: json.id });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error resolving import log' });
@@ -69,7 +75,7 @@ router.post('/local', protect, async (req, res) => {
     }
 
     // Verify group exists
-    const group = await Group.findById(groupId);
+    const group = await Group.findByPk(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
@@ -92,7 +98,7 @@ router.post('/local', protect, async (req, res) => {
       })
       .on('end', async () => {
         try {
-          const report = await importCSVRows(groupId, rows, req.user._id);
+          const report = await importCSVRows(groupId, rows, req.user.id);
           res.json({ message: 'Local CSV imported successfully', report });
         } catch (err) {
           console.error(err);
@@ -116,7 +122,7 @@ router.post('/json', protect, async (req, res) => {
     }
 
     // Verify group exists
-    const group = await Group.findById(groupId);
+    const group = await Group.findByPk(groupId);
     if (!group) {
       return res.status(404).json({ message: 'Group not found' });
     }
@@ -130,7 +136,7 @@ router.post('/json', protect, async (req, res) => {
       return cleaned;
     });
 
-    const report = await importCSVRows(groupId, cleanedRows, req.user._id);
+    const report = await importCSVRows(groupId, cleanedRows, req.user.id);
     res.json({ message: 'JSON rows imported successfully', report });
   } catch (error) {
     console.error(error);

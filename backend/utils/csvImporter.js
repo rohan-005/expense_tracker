@@ -88,7 +88,7 @@ const parseImportDate = (dateStr) => {
 // Core Importer Function
 const importCSVRows = async (groupId, rows, creatorId) => {
   const reports = [];
-  const dbUsers = await User.find({});
+  const dbUsers = await User.findAll();
   
   // Normalize alias mapping
   const aliasMap = {
@@ -110,7 +110,9 @@ const importCSVRows = async (groupId, rows, creatorId) => {
   };
 
   const getMembership = async (userId) => {
-    return await GroupMembership.findOne({ group: groupId, user: userId });
+    return await GroupMembership.findOne({
+      where: { groupId: groupId, userId: userId }
+    });
   };
 
   // Keep track of imported expenses in this run to detect duplicates
@@ -151,7 +153,7 @@ const importCSVRows = async (groupId, rows, creatorId) => {
         rowStatus = 'pending_review';
         paidByUserId = creatorId; // Default fallback
       } else {
-        paidByUserId = payerUser._id;
+        paidByUserId = payerUser.id;
         // Verify name alias normalization logging if there was a slight difference
         const cleanName = row.paid_by.trim();
         if (cleanName.toLowerCase() !== payerUser.name.toLowerCase()) {
@@ -251,7 +253,7 @@ const importCSVRows = async (groupId, rows, creatorId) => {
         const noteWords = noteText.split(/\s+/);
         for (const word of noteWords) {
           const u = getUserByName(word);
-          if (u && u._id.toString() !== paidByUserId.toString()) {
+          if (u && String(u.id) !== String(paidByUserId)) {
             toUserObj = u;
             break;
           }
@@ -265,20 +267,20 @@ const importCSVRows = async (groupId, rows, creatorId) => {
           action: 'Settlement row missing valid recipient; logged for review'
         });
         rowStatus = 'pending_review';
-        toUserObj = { _id: creatorId }; // Fallback
+        toUserObj = { id: creatorId }; // Fallback
       }
 
-      // Save as settlement if resolved, or save but flag
+      // Save as settlement
       await Settlement.create({
-        group: groupId,
-        fromUser: paidByUserId,
-        toUser: toUserObj._id,
+        groupId: groupId,
+        fromUserId: paidByUserId,
+        toUserId: toUserObj.id,
         amount: Math.abs(convertedAmount), // Settlements are positive
         date: parsedDateObj,
         rowNumber: rowNum,
       });
 
-      actionTaken = `Imported directly into Settlement table: ${row.paid_by} to ${toUserObj.name || 'Unknown'}`;
+      actionTaken = `Imported directly into Settlement table: ${row.paid_by || 'Unknown'} to ${toUserObj.name || 'Unknown'}`;
       
       // Save import logs for any issues on this settlement row
       if (issues.length === 0) {
@@ -308,21 +310,25 @@ const importCSVRows = async (groupId, rows, creatorId) => {
     let isExactDuplicate = false;
     let isConflictingDuplicate = false;
 
-    // Check against database and current import session
-    // Find expenses in the DB on same date, group, and check similarity
-    const sameDateExpenses = await Expense.find({
-      group: groupId,
-      date: {
-        $gte: new Date(parsedDateObj.getFullYear(), parsedDateObj.getMonth(), parsedDateObj.getDate()),
-        $lte: new Date(parsedDateObj.getFullYear(), parsedDateObj.getMonth(), parsedDateObj.getDate(), 23, 59, 59)
-      },
-      isDeleted: false
+    // Fetch active expenses of the group to check similarity in-memory
+    const allGroupExpenses = await Expense.findAll({
+      where: {
+        groupId: groupId,
+        isDeleted: false
+      }
+    });
+
+    const sameDateExpenses = allGroupExpenses.filter(e => {
+      const d1 = new Date(e.date);
+      return d1.getFullYear() === parsedDateObj.getFullYear() &&
+             d1.getMonth() === parsedDateObj.getMonth() &&
+             d1.getDate() === parsedDateObj.getDate();
     });
 
     const allCompareExpenses = [...sameDateExpenses, ...importedExpenses];
 
     for (const other of allCompareExpenses) {
-      if (other.paidBy.toString() === paidByUserId.toString() && Math.abs(other.amount - roundedAmount) < 0.01) {
+      if (String(other.paidById) === String(paidByUserId) && Math.abs(other.amount - roundedAmount) < 0.01) {
         if (isSimilarDescription(other.description, row.description)) {
           isExactDuplicate = true;
           break;
@@ -364,22 +370,21 @@ const importCSVRows = async (groupId, rows, creatorId) => {
 
     // Create the expense record
     const expense = await Expense.create({
-      group: groupId,
+      groupId: groupId,
       description: row.description,
       amount: roundedAmount,
       currency,
       exchangeRate,
       convertedAmount,
       splitType,
-      paidBy: paidByUserId,
+      paidById: paidByUserId,
       date: parsedDateObj,
-      createdBy: creatorId,
+      createdById: creatorId,
       notes: row.notes || '',
       isSettlementFlag: false,
       rowNumber: rowNum
     });
 
-    // Save in imported session list for duplicate checks in later rows
     importedExpenses.push(expense);
 
     // Calculate splits
@@ -405,26 +410,24 @@ const importCSVRows = async (groupId, rows, creatorId) => {
     // Membership dates check: Membership mismatch
     const finalSplitUsers = [];
     for (const userObj of splitMembers) {
-      const membership = await getMembership(userObj._id);
+      const membership = await getMembership(userObj.id);
       if (membership) {
-        // Check if expense date is after they left (or before they joined)
-        if (membership.leaveDate && parsedDateObj > membership.leaveDate) {
+        if (membership.leaveDate && parsedDateObj > new Date(membership.leaveDate)) {
           issues.push({
             issueType: 'membership_mismatch',
             status: 'resolved',
-            action: `Auto-excluded ${userObj.name} from splits (expense date ${parsedDateObj.toDateString()} is after leave date ${membership.leaveDate.toDateString()})`
+            action: `Auto-excluded ${userObj.name} from splits (expense date ${parsedDateObj.toDateString()} is after leave date ${new Date(membership.leaveDate).toDateString()})`
           });
-        } else if (parsedDateObj < membership.joinDate) {
+        } else if (parsedDateObj < new Date(membership.joinDate)) {
           issues.push({
             issueType: 'membership_mismatch',
             status: 'resolved',
-            action: `Auto-excluded ${userObj.name} from splits (expense date ${parsedDateObj.toDateString()} is before join date ${membership.joinDate.toDateString()})`
+            action: `Auto-excluded ${userObj.name} from splits (expense date ${parsedDateObj.toDateString()} is before join date ${new Date(membership.joinDate).toDateString()})`
           });
         } else {
           finalSplitUsers.push(userObj);
         }
       } else {
-        // Non-member
         issues.push({
           issueType: 'membership_mismatch',
           status: 'resolved',
@@ -436,7 +439,7 @@ const importCSVRows = async (groupId, rows, creatorId) => {
     // Compute split values
     let computedSplits = [];
     if (finalSplitUsers.length > 0) {
-      if (splitType === 'equal' || splitType === 'share' && !hasSplitDetails) {
+      if (splitType === 'equal' || (splitType === 'share' && !hasSplitDetails)) {
         const shareAmt = round2(convertedAmount / finalSplitUsers.length);
         let sum = 0;
         finalSplitUsers.forEach((u, index) => {
@@ -445,15 +448,12 @@ const importCSVRows = async (groupId, rows, creatorId) => {
             owed = round2(convertedAmount - sum);
           }
           sum += owed;
-          computedSplits.push({ expense: expense._id, user: u._id, amountOwed: owed });
+          computedSplits.push({ expenseId: expense.id, userId: u.id, amountOwed: owed });
         });
       } else {
-        // Unequal, percentage, share with details
-        // Parse split_details e.g. "Rohan 700; Priya 400; Meera 400" or "Aisha 30%; Rohan 30%"
         const detailsMap = {};
         const detailPairs = (row.split_details || '').split(';').map(p => p.trim()).filter(p => p !== '');
         detailPairs.forEach(pair => {
-          // split by space or last space
           const lastSpaceIdx = pair.lastIndexOf(' ');
           if (lastSpaceIdx !== -1) {
             const name = pair.substring(0, lastSpaceIdx).trim();
@@ -461,7 +461,7 @@ const importCSVRows = async (groupId, rows, creatorId) => {
             const val = parseFloat(valStr);
             const resolvedUser = getUserByName(name);
             if (resolvedUser) {
-              detailsMap[resolvedUser._id.toString()] = val;
+              detailsMap[resolvedUser.id.toString()] = val;
             }
           }
         });
@@ -469,13 +469,12 @@ const importCSVRows = async (groupId, rows, creatorId) => {
         if (splitType === 'unequal') {
           let sum = 0;
           finalSplitUsers.forEach((u, index) => {
-            const rawVal = detailsMap[u._id.toString()] || 0;
+            const rawVal = detailsMap[u.id.toString()] || 0;
             const baseVal = currency === 'USD' ? rawVal * 83 : rawVal;
             const owed = round2(baseVal);
             sum += owed;
-            computedSplits.push({ expense: expense._id, user: u._id, amountOwed: owed });
+            computedSplits.push({ expenseId: expense.id, userId: u.id, amountOwed: owed });
           });
-          // Check rounding adjustment
           if (computedSplits.length > 0 && Math.abs(sum - convertedAmount) > 0.01) {
             const lastIdx = computedSplits.length - 1;
             computedSplits[lastIdx].amountOwed = round2(convertedAmount - (sum - computedSplits[lastIdx].amountOwed));
@@ -483,31 +482,30 @@ const importCSVRows = async (groupId, rows, creatorId) => {
         } else if (splitType === 'percentage') {
           let sum = 0;
           finalSplitUsers.forEach((u, index) => {
-            const pct = detailsMap[u._id.toString()] || 0;
+            const pct = detailsMap[u.id.toString()] || 0;
             const owed = round2((convertedAmount * pct) / 100);
             sum += owed;
-            computedSplits.push({ expense: expense._id, user: u._id, amountOwed: owed });
+            computedSplits.push({ expenseId: expense.id, userId: u.id, amountOwed: owed });
           });
           if (computedSplits.length > 0) {
             const lastIdx = computedSplits.length - 1;
             computedSplits[lastIdx].amountOwed = round2(convertedAmount - (sum - computedSplits[lastIdx].amountOwed));
           }
         } else if (splitType === 'share') {
-          const totalShares = finalSplitUsers.reduce((acc, u) => acc + (detailsMap[u._id.toString()] || 0), 0);
+          const totalShares = finalSplitUsers.reduce((acc, u) => acc + (detailsMap[u.id.toString()] || 0), 0);
           if (totalShares > 0) {
             let sum = 0;
             finalSplitUsers.forEach((u, index) => {
-              const sh = detailsMap[u._id.toString()] || 0;
+              const sh = detailsMap[u.id.toString()] || 0;
               const owed = round2((convertedAmount * sh) / totalShares);
               sum += owed;
-              computedSplits.push({ expense: expense._id, user: u._id, amountOwed: owed });
+              computedSplits.push({ expenseId: expense.id, userId: u.id, amountOwed: owed });
             });
             if (computedSplits.length > 0) {
               const lastIdx = computedSplits.length - 1;
               computedSplits[lastIdx].amountOwed = round2(convertedAmount - (sum - computedSplits[lastIdx].amountOwed));
             }
           } else {
-            // Fallback to equal if no shares mapped
             const shareAmt = round2(convertedAmount / finalSplitUsers.length);
             let sum = 0;
             finalSplitUsers.forEach((u, index) => {
@@ -516,13 +514,13 @@ const importCSVRows = async (groupId, rows, creatorId) => {
                 owed = round2(convertedAmount - sum);
               }
               sum += owed;
-              computedSplits.push({ expense: expense._id, user: u._id, amountOwed: owed });
+              computedSplits.push({ expenseId: expense.id, userId: u.id, amountOwed: owed });
             });
           }
         }
       }
 
-      await Split.insertMany(computedSplits);
+      await Split.bulkCreate(computedSplits);
     }
 
     // Save logs

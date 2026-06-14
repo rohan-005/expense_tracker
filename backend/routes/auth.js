@@ -22,7 +22,7 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ message: 'Please provide all required fields' });
     }
 
-    const userExists = await User.findOne({ email });
+    const userExists = await User.findOne({ where: { email } });
     if (userExists) {
       return res.status(400).json({ message: 'User already exists' });
     }
@@ -35,11 +35,12 @@ router.post('/register', async (req, res) => {
     });
 
     res.status(201).json({
-      _id: user._id,
+      id: user.id,
+      _id: user.id,
       name: user.name,
       email: user.email,
       avatar_url: user.avatar_url,
-      token: generateToken(user._id),
+      token: generateToken(user.id),
     });
   } catch (error) {
     console.error(error);
@@ -58,15 +59,16 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ message: 'Please provide email and password' });
     }
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ where: { email } });
 
     if (user && (await user.matchPassword(password))) {
       res.json({
-        _id: user._id,
+        id: user.id,
+        _id: user.id,
         name: user.name,
         email: user.email,
         avatar_url: user.avatar_url,
-        token: generateToken(user._id),
+        token: generateToken(user.id),
       });
     } else {
       res.status(401).json({ message: 'Invalid email or password' });

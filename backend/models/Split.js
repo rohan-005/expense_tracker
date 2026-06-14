@@ -1,22 +1,44 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/db');
+const User = require('./User');
+const Expense = require('./Expense');
 
-const SplitSchema = new mongoose.Schema({
-  expense: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Expense',
-    required: true,
+const Split = sequelize.define('Split', {
+  id: {
+    type: DataTypes.INTEGER,
+    autoIncrement: true,
+    primaryKey: true,
   },
-  user: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true,
+  expenseId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: Expense,
+      key: 'id',
+    },
+  },
+  userId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: User,
+      key: 'id',
+    },
   },
   amountOwed: {
-    type: Number,
-    required: true, // always in base currency (INR)
+    type: DataTypes.DOUBLE,
+    allowNull: false,
   },
 }, {
-  timestamps: { createdAt: 'created_at', updatedAt: false }
+  timestamps: true,
+  createdAt: 'created_at',
+  updatedAt: 'updated_at',
 });
 
-module.exports = mongoose.model('Split', SplitSchema);
+// Associations
+Split.belongsTo(Expense, { as: 'expense', foreignKey: 'expenseId' });
+Split.belongsTo(User, { as: 'user', foreignKey: 'userId' });
+
+Expense.hasMany(Split, { foreignKey: 'expenseId' });
+
+module.exports = Split;

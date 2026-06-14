@@ -1,23 +1,44 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/db');
+const User = require('./User');
+const Expense = require('./Expense');
 
-const CommentSchema = new mongoose.Schema({
-  expense: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Expense',
-    required: true,
+const Comment = sequelize.define('Comment', {
+  id: {
+    type: DataTypes.INTEGER,
+    autoIncrement: true,
+    primaryKey: true,
   },
-  user: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true,
+  expenseId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: Expense,
+      key: 'id',
+    },
+  },
+  userId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: User,
+      key: 'id',
+    },
   },
   message: {
-    type: String,
-    required: true,
-    trim: true,
+    type: DataTypes.TEXT,
+    allowNull: false,
   },
 }, {
-  timestamps: { createdAt: 'created_at', updatedAt: false }
+  timestamps: true,
+  createdAt: 'created_at',
+  updatedAt: 'updated_at',
 });
 
-module.exports = mongoose.model('Comment', CommentSchema);
+// Associations
+Comment.belongsTo(Expense, { as: 'expense', foreignKey: 'expenseId' });
+Comment.belongsTo(User, { as: 'user', foreignKey: 'userId' });
+
+Expense.hasMany(Comment, { foreignKey: 'expenseId' });
+
+module.exports = Comment;

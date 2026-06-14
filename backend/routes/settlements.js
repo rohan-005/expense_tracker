@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Settlement = require('../models/Settlement');
 const GroupMembership = require('../models/GroupMembership');
+const User = require('../models/User');
 const { protect } = require('../middleware/auth');
 
 // @desc    Get all settlements in a group
@@ -15,17 +16,31 @@ router.get('/', protect, async (req, res) => {
     }
 
     // Verify membership
-    const membership = await GroupMembership.findOne({ group: groupId, user: req.user._id });
+    const membership = await GroupMembership.findOne({
+      where: { groupId: groupId, userId: req.user.id }
+    });
     if (!membership) {
       return res.status(403).json({ message: 'Not authorized to view settlements in this group' });
     }
 
-    const settlements = await Settlement.find({ group: groupId })
-      .populate('fromUser', 'name email avatar_url')
-      .populate('toUser', 'name email avatar_url')
-      .sort({ date: -1, created_at: -1 });
+    const settlements = await Settlement.findAll({
+      where: { groupId: groupId },
+      include: [
+        { model: User, as: 'fromUser', attributes: ['id', 'name', 'email', 'avatar_url'] },
+        { model: User, as: 'toUser', attributes: ['id', 'name', 'email', 'avatar_url'] }
+      ],
+      order: [
+        ['date', 'DESC'],
+        ['created_at', 'DESC']
+      ]
+    });
 
-    res.json(settlements);
+    const response = settlements.map(s => {
+      const json = s.toJSON();
+      return { ...json, _id: json.id };
+    });
+
+    res.json(response);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error retrieving settlements' });
@@ -44,32 +59,42 @@ router.post('/', protect, async (req, res) => {
     }
 
     // Verify membership of requester
-    const membership = await GroupMembership.findOne({ group: groupId, user: req.user._id });
+    const membership = await GroupMembership.findOne({
+      where: { groupId: groupId, userId: req.user.id }
+    });
     if (!membership) {
       return res.status(403).json({ message: 'Not authorized' });
     }
 
     // Verify fromUser and toUser are members
-    const fromMember = await GroupMembership.findOne({ group: groupId, user: fromUser });
-    const toMember = await GroupMembership.findOne({ group: groupId, user: toUser });
+    const fromMember = await GroupMembership.findOne({
+      where: { groupId: groupId, userId: fromUser }
+    });
+    const toMember = await GroupMembership.findOne({
+      where: { groupId: groupId, userId: toUser }
+    });
 
     if (!fromMember || !toMember) {
       return res.status(400).json({ message: 'Both users must be members of the group' });
     }
 
     const settlement = await Settlement.create({
-      group: groupId,
-      fromUser,
-      toUser,
+      groupId: groupId,
+      fromUserId: fromUser,
+      toUserId: toUser,
       amount: parseFloat(amount),
       date: date ? new Date(date) : new Date(),
     });
 
-    const populated = await Settlement.findById(settlement._id)
-      .populate('fromUser', 'name email avatar_url')
-      .populate('toUser', 'name email avatar_url');
+    const populated = await Settlement.findByPk(settlement.id, {
+      include: [
+        { model: User, as: 'fromUser', attributes: ['id', 'name', 'email', 'avatar_url'] },
+        { model: User, as: 'toUser', attributes: ['id', 'name', 'email', 'avatar_url'] }
+      ]
+    });
 
-    res.status(201).json(populated);
+    const json = populated.toJSON();
+    res.status(201).json({ ...json, _id: json.id });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error recording settlement' });

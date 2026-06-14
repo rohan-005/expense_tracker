@@ -1,29 +1,37 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/db');
 
-const ImportLogSchema = new mongoose.Schema({
+const ImportLog = sequelize.define('ImportLog', {
+  id: {
+    type: DataTypes.INTEGER,
+    autoIncrement: true,
+    primaryKey: true,
+  },
   rowNumber: {
-    type: Number,
-    required: true,
+    type: DataTypes.INTEGER,
+    allowNull: false,
   },
   rawData: {
-    type: Object,
-    required: true,
+    type: DataTypes.JSON, // Maps to JSON TEXT under SQLite
+    allowNull: false,
   },
   issueType: {
-    type: String,
-    required: true,
+    type: DataTypes.STRING,
+    allowNull: false,
   },
   actionTaken: {
-    type: String,
-    required: true,
+    type: DataTypes.STRING,
+    allowNull: false,
   },
   status: {
-    type: String,
-    enum: ['resolved', 'pending_review'],
-    default: 'pending_review',
+    type: DataTypes.STRING,
+    allowNull: false,
+    defaultValue: 'pending_review',
   },
 }, {
-  timestamps: { createdAt: 'created_at', updatedAt: false }
+  timestamps: true,
+  createdAt: 'created_at',
+  updatedAt: 'updated_at',
 });
 
-module.exports = mongoose.model('ImportLog', ImportLogSchema);
+module.exports = ImportLog;

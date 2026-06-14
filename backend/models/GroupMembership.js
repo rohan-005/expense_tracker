@@ -1,35 +1,62 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const { sequelize } = require('../config/db');
+const User = require('./User');
+const Group = require('./Group');
 
-const GroupMembershipSchema = new mongoose.Schema({
-  group: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Group',
-    required: true,
+const GroupMembership = sequelize.define('GroupMembership', {
+  id: {
+    type: DataTypes.INTEGER,
+    autoIncrement: true,
+    primaryKey: true,
   },
-  user: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true,
+  groupId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: Group,
+      key: 'id',
+    },
+  },
+  userId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: User,
+      key: 'id',
+    },
   },
   role: {
-    type: String,
-    enum: ['admin', 'member'],
-    default: 'member',
+    type: DataTypes.STRING,
+    allowNull: false,
+    defaultValue: 'member',
   },
   joinDate: {
-    type: Date,
-    required: true,
-    default: Date.now,
+    type: DataTypes.DATE,
+    allowNull: false,
+    defaultValue: DataTypes.NOW,
   },
   leaveDate: {
-    type: Date,
-    default: null,
+    type: DataTypes.DATE,
+    allowNull: true,
+    defaultValue: null,
   },
 }, {
-  timestamps: { createdAt: 'created_at', updatedAt: false }
+  timestamps: true,
+  createdAt: 'created_at',
+  updatedAt: 'updated_at',
+  indexes: [
+    {
+      unique: true,
+      fields: ['groupId', 'userId'],
+    }
+  ]
 });
 
-// Set compound unique index to prevent duplicate memberships
-GroupMembershipSchema.index({ group: 1, user: 1 }, { unique: true });
+// Associations
+GroupMembership.belongsTo(Group, { as: 'group', foreignKey: 'groupId' });
+GroupMembership.belongsTo(User, { as: 'user', foreignKey: 'userId' });
 
-module.exports = mongoose.model('GroupMembership', GroupMembershipSchema);
+Group.hasMany(GroupMembership, { foreignKey: 'groupId' });
+User.hasMany(GroupMembership, { foreignKey: 'userId' });
+
+module.exports = GroupMembership;

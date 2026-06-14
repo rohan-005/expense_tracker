@@ -1,11 +1,7 @@
-const mongoose = require('mongoose');
-const dotenv = require('dotenv');
+const { sequelize } = require('../config/db');
 const User = require('../models/User');
 const Group = require('../models/Group');
 const GroupMembership = require('../models/GroupMembership');
-
-// Load env vars
-dotenv.config();
 
 const usersData = [
   { name: 'Aisha', email: 'aisha@example.com', password: 'password123', avatar_url: 'https://api.dicebear.com/7.x/bottts/svg?seed=Aisha' },
@@ -18,30 +14,14 @@ const usersData = [
 
 const seedDB = async () => {
   try {
-    // Connect to database
-    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/expense_tracker');
-    console.log('Connected to MongoDB for seeding...');
+    console.log('Syncing database tables (force drop and recreate)...');
+    await sequelize.sync({ force: true });
+    console.log('Tables synced.');
 
-    // Clear existing data
-    await User.deleteMany({});
-    await Group.deleteMany({});
-    await GroupMembership.deleteMany({});
-    
-    // Check if models exist before deleting to avoid errors
-    const collections = mongoose.connection.collections;
-    if (collections['expenses']) await collections['expenses'].deleteMany({});
-    if (collections['splits']) await collections['splits'].deleteMany({});
-    if (collections['settlements']) await collections['settlements'].deleteMany({});
-    if (collections['comments']) await collections['comments'].deleteMany({});
-    if (collections['importlogs']) await collections['importlogs'].deleteMany({});
-
-    console.log('Cleared existing collections.');
-
-    // Create users (using save() so the password hashing pre-save hook runs)
+    // Seed users using .create() so hooks (password hashing) run
     const createdUsers = [];
     for (const u of usersData) {
-      const newUser = new User(u);
-      await newUser.save();
+      const newUser = await User.create(u);
       createdUsers.push(newUser);
       console.log(`Seeded user: ${u.name}`);
     }
@@ -53,31 +33,31 @@ const seedDB = async () => {
     const dev = createdUsers.find(u => u.name === 'Dev');
     const sam = createdUsers.find(u => u.name === 'Sam');
 
-    // Create default group
+    // Create group
     const group = await Group.create({
       name: 'Apartment 4B',
       category: 'Home',
-      createdBy: aisha._id,
+      createdById: aisha.id,
     });
     console.log(`Seeded group: ${group.name}`);
 
-    // Create memberships with proper dates
+    // Create group memberships
     const memberships = [
-      { group: group._id, user: aisha._id, role: 'admin', joinDate: new Date('2026-01-01') },
-      { group: group._id, user: rohan._id, role: 'member', joinDate: new Date('2026-01-01') },
-      { group: group._id, user: priya._id, role: 'member', joinDate: new Date('2026-01-01') },
+      { groupId: group.id, userId: aisha.id, role: 'admin', joinDate: new Date('2026-01-01') },
+      { groupId: group.id, userId: rohan.id, role: 'member', joinDate: new Date('2026-01-01') },
+      { groupId: group.id, userId: priya.id, role: 'member', joinDate: new Date('2026-01-01') },
       {
-        group: group._id,
-        user: meera._id,
+        groupId: group.id,
+        userId: meera.id,
         role: 'member',
         joinDate: new Date('2026-01-01'),
         leaveDate: new Date('2026-03-29T23:59:59'), // Meera left on Sunday Mar 29, 2026
       },
-      { group: group._id, user: dev._id, role: 'member', joinDate: new Date('2026-01-01') },
-      { group: group._id, user: sam._id, role: 'member', joinDate: new Date('2026-04-08') }, // Sam joins April 8, 2026
+      { groupId: group.id, userId: dev.id, role: 'member', joinDate: new Date('2026-01-01') },
+      { groupId: group.id, userId: sam.id, role: 'member', joinDate: new Date('2026-04-08') }, // Sam joins April 8, 2026
     ];
 
-    await GroupMembership.insertMany(memberships);
+    await GroupMembership.bulkCreate(memberships);
     console.log('Seeded group memberships.');
 
     console.log('Database seeding completed successfully!');

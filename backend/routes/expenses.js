@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { Op } = require('sequelize');
 const Expense = require('../models/Expense');
 const Split = require('../models/Split');
 const Comment = require('../models/Comment');
@@ -43,26 +44,29 @@ router.get('/', protect, async (req, res) => {
       ]
     });
 
-    // For each expense, load its splits
-    const expensesWithSplits = [];
-    for (const exp of expenses) {
-      const splits = await Split.findAll({
-        where: { expenseId: exp.id },
-        include: [
-          { model: User, as: 'user', attributes: ['id', 'name', 'email', 'avatar_url'] }
-        ]
-      });
+    if (expenses.length === 0) return res.json([]);
 
+    // PERF FIX: Fetch ALL splits in ONE query instead of N separate queries (N+1 → 2 total)
+    const expenseIds = expenses.map(e => e.id);
+    const allSplits = await Split.findAll({
+      where: { expenseId: { [Op.in]: expenseIds } },
+      include: [
+        { model: User, as: 'user', attributes: ['id', 'name', 'email', 'avatar_url'] }
+      ]
+    });
+
+    // Group splits by expenseId in-memory
+    const splitsByExpId = {};
+    allSplits.forEach(sp => {
+      if (!splitsByExpId[sp.expenseId]) splitsByExpId[sp.expenseId] = [];
+      const sJson = sp.toJSON();
+      splitsByExpId[sp.expenseId].push({ ...sJson, _id: sJson.id });
+    });
+
+    const expensesWithSplits = expenses.map(exp => {
       const expJson = exp.toJSON();
-      expensesWithSplits.push({
-        ...expJson,
-        _id: expJson.id,
-        splits: splits.map(s => {
-          const sJson = s.toJSON();
-          return { ...sJson, _id: sJson.id };
-        }),
-      });
-    }
+      return { ...expJson, _id: expJson.id, splits: splitsByExpId[expJson.id] || [] };
+    });
 
     res.json(expensesWithSplits);
   } catch (error) {

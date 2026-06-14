@@ -87,6 +87,11 @@ const Expense = sequelize.define('Expense', {
   timestamps: true,
   createdAt: 'created_at',
   updatedAt: 'updated_at',
+  indexes: [
+    { fields: ['groupId'] },
+    { fields: ['paidById'] },
+    { fields: ['isDeleted'] }
+  ]
 });
 
 // Associations

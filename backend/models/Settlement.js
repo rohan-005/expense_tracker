@@ -50,6 +50,11 @@ const Settlement = sequelize.define('Settlement', {
   timestamps: true,
   createdAt: 'created_at',
   updatedAt: 'updated_at',
+  indexes: [
+    { fields: ['groupId'] },
+    { fields: ['fromUserId'] },
+    { fields: ['toUserId'] }
+  ]
 });
 
 // Associations

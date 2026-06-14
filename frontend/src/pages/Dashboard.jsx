@@ -10,6 +10,7 @@ const Dashboard = () => {
   const [groupName, setGroupName] = useState('');
   const [category, setCategory] = useState('Home');
   const [error, setError] = useState('');
+  const [creatingGroup, setCreatingGroup] = useState(false);
   const { token, getAuthHeaders } = useAuth();
 
   const categories = ['Home', 'Trip', 'Couple', 'Other'];
@@ -41,6 +42,7 @@ const Dashboard = () => {
       return;
     }
     setError('');
+    setCreatingGroup(true);
 
     try {
       const response = await fetch('/api/groups', {
@@ -60,6 +62,8 @@ const Dashboard = () => {
     } catch (err) {
       console.error(err);
       setError('Server error creating group');
+    } finally {
+      setCreatingGroup(false);
     }
   };
 
@@ -181,9 +185,10 @@ const Dashboard = () => {
                 </button>
                 <button
                   type="submit"
-                  className="w-1/2 bg-[#FF7A1A] hover:bg-[#E56910] text-[#FFFFFF] font-bold py-2 rounded-none uppercase tracking-wider text-xs transition-colors"
+                  disabled={creatingGroup}
+                  className="w-1/2 bg-[#FF7A1A] hover:bg-[#E56910] text-[#FFFFFF] font-bold py-2 rounded-none uppercase tracking-wider text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Create Group
+                  {creatingGroup ? 'Creating...' : 'Create Group'}
                 </button>
               </div>
             </form>

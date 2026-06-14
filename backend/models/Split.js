@@ -33,6 +33,10 @@ const Split = sequelize.define('Split', {
   timestamps: true,
   createdAt: 'created_at',
   updatedAt: 'updated_at',
+  indexes: [
+    { fields: ['expenseId'] },
+    { fields: ['userId'] }
+  ]
 });
 
 // Associations

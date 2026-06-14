@@ -135,7 +135,7 @@ const CSVImporter = () => {
             <button
               onClick={handleLocalImport}
               disabled={loading}
-              className="w-full bg-[#1F1F1F] hover:bg-[#333333] text-[#FFFFFF] font-bold py-2 px-4 rounded-none uppercase tracking-wider transition-colors disabled:opacity-50 text-xs"
+              className="w-full bg-[#1F1F1F] hover:bg-[#333333] text-[#FFFFFF] font-bold py-2 px-4 rounded-none uppercase tracking-wider transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs"
             >
               {loading ? 'Processing...' : 'Run Auto-Import'}
             </button>
@@ -179,7 +179,7 @@ const CSVImporter = () => {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-[#FF7A1A] hover:bg-[#E56910] text-[#FFFFFF] font-bold py-2 px-4 rounded-none uppercase tracking-wider transition-colors disabled:opacity-50 text-xs"
+                className="w-full bg-[#FF7A1A] hover:bg-[#E56910] text-[#FFFFFF] font-bold py-2 px-4 rounded-none uppercase tracking-wider transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs"
               >
                 {loading ? 'Processing...' : 'Import Data'}
               </button>

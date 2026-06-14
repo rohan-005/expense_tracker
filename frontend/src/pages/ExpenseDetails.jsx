@@ -4,6 +4,16 @@ import { useAuth } from '../context/AuthContext';
 import { ArrowLeft, MessageSquare, Send, Calendar, DollarSign, User } from 'lucide-react';
 import io from 'socket.io-client';
 
+const fmtDate = (dateStr) => {
+  if (!dateStr) return '-';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${dd}-${mm}-${yyyy}`;
+};
+
 const ExpenseDetails = () => {
   const { id } = useParams();
   const { user: currentUser, token, getAuthHeaders } = useAuth();
@@ -14,6 +24,7 @@ const ExpenseDetails = () => {
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [sendingComment, setSendingComment] = useState(false);
 
   const commentsEndRef = useRef(null);
   const socketRef = useRef(null);
@@ -72,6 +83,7 @@ const ExpenseDetails = () => {
   const handleSendComment = async (e) => {
     e.preventDefault();
     if (!newMessage.trim()) return;
+    setSendingComment(true);
 
     try {
       const response = await fetch(`/api/expenses/${id}/comments`, {
@@ -94,6 +106,8 @@ const ExpenseDetails = () => {
       }
     } catch (err) {
       console.error(err);
+    } finally {
+      setSendingComment(false);
     }
   };
 
@@ -138,7 +152,7 @@ const ExpenseDetails = () => {
             </span>
             <span className="text-xs opacity-50 flex items-center">
               <Calendar size={12} className="mr-1" />
-              {new Date(expense.date).toLocaleDateString()}
+              {fmtDate(expense.date)}
             </span>
           </div>
 
@@ -252,7 +266,8 @@ const ExpenseDetails = () => {
             />
             <button
               type="submit"
-              className="bg-[#1F1F1F] hover:bg-[#333333] text-[#FFFFFF] px-4 py-2 rounded-none transition-colors"
+              disabled={sendingComment}
+              className="bg-[#1F1F1F] hover:bg-[#333333] text-[#FFFFFF] px-4 py-2 rounded-none transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Send size={14} />
             </button>

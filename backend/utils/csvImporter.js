@@ -109,11 +109,20 @@ const importCSVRows = async (groupId, rows, creatorId) => {
     return dbUsers.find(u => u.name.toLowerCase() === resolvedName) || null;
   };
 
-  const getMembership = async (userId) => {
-    return await GroupMembership.findOne({
-      where: { groupId: groupId, userId: userId }
-    });
+  const dbMemberships = await GroupMembership.findAll({
+    where: { groupId: groupId }
+  });
+
+  const getMembership = (userId) => {
+    return dbMemberships.find(m => String(m.userId) === String(userId)) || null;
   };
+
+  const allGroupExpenses = await Expense.findAll({
+    where: {
+      groupId: groupId,
+      isDeleted: false
+    }
+  });
 
   // Keep track of imported expenses in this run to detect duplicates
   const importedExpenses = [];
@@ -310,13 +319,7 @@ const importCSVRows = async (groupId, rows, creatorId) => {
     let isExactDuplicate = false;
     let isConflictingDuplicate = false;
 
-    // Fetch active expenses of the group to check similarity in-memory
-    const allGroupExpenses = await Expense.findAll({
-      where: {
-        groupId: groupId,
-        isDeleted: false
-      }
-    });
+    // Use pre-fetched active expenses of the group to check similarity in-memory
 
     const sameDateExpenses = allGroupExpenses.filter(e => {
       const d1 = new Date(e.date);
@@ -386,6 +389,7 @@ const importCSVRows = async (groupId, rows, creatorId) => {
     });
 
     importedExpenses.push(expense);
+    allGroupExpenses.push(expense);
 
     // Calculate splits
     const splitWithStr = row.split_with || '';
@@ -410,7 +414,7 @@ const importCSVRows = async (groupId, rows, creatorId) => {
     // Membership dates check: Membership mismatch
     const finalSplitUsers = [];
     for (const userObj of splitMembers) {
-      const membership = await getMembership(userObj.id);
+      const membership = getMembership(userObj.id);
       if (membership) {
         if (membership.leaveDate && parsedDateObj > new Date(membership.leaveDate)) {
           issues.push({

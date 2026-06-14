@@ -3,6 +3,23 @@ import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Plus, UserPlus, Upload, FileText, ArrowRight, Trash2, Calendar, DollarSign, MessageSquare } from 'lucide-react';
 
+// Format date as DD-MM-YYYY
+const fmtDate = (dateStr) => {
+  if (!dateStr) return '-';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${dd}-${mm}-${yyyy}`;
+};
+
+// Get short month label (e.g. "JAN") from a date string
+const fmtMonth = (dateStr) => {
+  const d = new Date(dateStr);
+  return d.toLocaleDateString('en-IN', { month: 'short' }).toUpperCase();
+};
+
 const GroupDetails = () => {
   const { id } = useParams();
   const { user: currentUser, token, getAuthHeaders } = useAuth();
@@ -42,6 +59,10 @@ const GroupDetails = () => {
   const [splitMembersSelected, setSplitMembersSelected] = useState({});
   const [splitValues, setSplitValues] = useState({});
   const [expenseError, setExpenseError] = useState('');
+
+  const [addingMember, setAddingMember] = useState(false);
+  const [settlingUp, setSettlingUp] = useState(false);
+  const [addingExpense, setAddingExpense] = useState(false);
 
   // Fetch initial group data, expenses, and balances
   const loadAllData = async () => {
@@ -101,6 +122,7 @@ const GroupDetails = () => {
       return;
     }
     setMemberError('');
+    setAddingMember(true);
 
     try {
       const response = await fetch(`/api/groups/${id}/members`, {
@@ -117,13 +139,15 @@ const GroupDetails = () => {
         setMemberEmail('');
         setMemberJoinDate('');
         setShowAddMember(false);
-        loadAllData();
+        await loadAllData();
       } else {
         setMemberError(data.message || 'Error adding member');
       }
     } catch (err) {
       console.error(err);
       setMemberError('Server error adding member');
+    } finally {
+      setAddingMember(false);
     }
   };
 
@@ -138,6 +162,7 @@ const GroupDetails = () => {
       return;
     }
     setSettleError('');
+    setSettlingUp(true);
 
     try {
       const response = await fetch('/api/settlements', {
@@ -156,7 +181,7 @@ const GroupDetails = () => {
         setSettleAmount('');
         setSettleDate('');
         setShowSettleUp(false);
-        loadAllData();
+        await loadAllData();
       } else {
         const data = await response.json();
         setSettleError(data.message || 'Error recording settlement');
@@ -164,6 +189,8 @@ const GroupDetails = () => {
     } catch (err) {
       console.error(err);
       setSettleError('Server error recording settlement');
+    } finally {
+      setSettlingUp(false);
     }
   };
 
@@ -215,6 +242,7 @@ const GroupDetails = () => {
       }
     }
 
+    setAddingExpense(true);
     try {
       const response = await fetch('/api/expenses', {
         method: 'POST',
@@ -239,7 +267,7 @@ const GroupDetails = () => {
         setExpenseDate('');
         setSplitValues({});
         setShowAddExpense(false);
-        loadAllData();
+        await loadAllData();
       } else {
         const data = await response.json();
         setExpenseError(data.message || 'Error adding expense');
@@ -247,6 +275,8 @@ const GroupDetails = () => {
     } catch (err) {
       console.error(err);
       setExpenseError('Server error adding expense');
+    } finally {
+      setAddingExpense(false);
     }
   };
 
@@ -370,7 +400,7 @@ const GroupDetails = () => {
                     {/* Date Block */}
                     <div className="flex flex-col items-center bg-[#F4F4F4] border border-[#E8E8E8] px-2.5 py-1.5 text-center min-w-[50px]">
                       <span className="text-[10px] uppercase font-bold opacity-60">
-                        {new Date(exp.date).toLocaleDateString('en-US', { month: 'short' })}
+                        {fmtMonth(exp.date)}
                       </span>
                       <span className="text-lg font-extrabold leading-none">
                         {new Date(exp.date).getDate()}
@@ -449,7 +479,7 @@ const GroupDetails = () => {
                   </div>
                   {mem.leaveDate ? (
                     <span className="text-[9px] uppercase font-bold tracking-wider border border-[#E8E8E8] bg-[#F4F4F4] px-1.5 py-0.5 opacity-50">
-                      Left: {new Date(mem.leaveDate).toLocaleDateString()}
+                      Left: {fmtDate(mem.leaveDate)}
                     </span>
                   ) : (
                     <span className="text-[9px] uppercase font-bold tracking-wider border border-[#FF7A1A] text-[#FF7A1A] bg-[#FFFFFF] px-1.5 py-0.5">
@@ -611,9 +641,10 @@ const GroupDetails = () => {
                 </button>
                 <button
                   type="submit"
-                  className="w-1/2 bg-[#FF7A1A] hover:bg-[#E56910] text-[#FFFFFF] font-bold py-2 rounded-none uppercase tracking-wider text-xs transition-colors"
+                  disabled={settlingUp}
+                  className="w-1/2 bg-[#FF7A1A] hover:bg-[#E56910] text-[#FFFFFF] font-bold py-2 rounded-none uppercase tracking-wider text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Save Payment
+                  {settlingUp ? 'Saving...' : 'Save Payment'}
                 </button>
               </div>
             </form>
@@ -683,9 +714,10 @@ const GroupDetails = () => {
                 </button>
                 <button
                   type="submit"
-                  className="w-1/2 bg-[#FF7A1A] hover:bg-[#E56910] text-[#FFFFFF] font-bold py-2 rounded-none uppercase tracking-wider text-xs transition-colors"
+                  disabled={addingMember}
+                  className="w-1/2 bg-[#FF7A1A] hover:bg-[#E56910] text-[#FFFFFF] font-bold py-2 rounded-none uppercase tracking-wider text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Add Member
+                  {addingMember ? 'Adding...' : 'Add Member'}
                 </button>
               </div>
             </form>
@@ -863,9 +895,10 @@ const GroupDetails = () => {
                 </button>
                 <button
                   type="submit"
-                  className="w-1/2 bg-[#FF7A1A] hover:bg-[#E56910] text-[#FFFFFF] font-bold py-2 rounded-none uppercase tracking-wider text-xs transition-colors"
+                  disabled={addingExpense}
+                  className="w-1/2 bg-[#FF7A1A] hover:bg-[#E56910] text-[#FFFFFF] font-bold py-2 rounded-none uppercase tracking-wider text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Save Expense
+                  {addingExpense ? 'Saving...' : 'Save Expense'}
                 </button>
               </div>
             </form>

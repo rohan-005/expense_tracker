@@ -403,4 +403,41 @@ router.get('/:id/balances', protect, async (req, res) => {
   }
 });
 
+// @desc    Delete a group (soft delete by setting isActive to false)
+// @route   DELETE /api/groups/:id
+// @access  Private
+router.delete('/:id', protect, async (req, res) => {
+  try {
+    const groupId = req.params.id;
+
+    // Check if the group exists
+    const group = await Group.findByPk(groupId);
+    if (!group) {
+      return res.status(404).json({ message: 'Group not found' });
+    }
+
+    // Verify user is an admin of this group
+    const membership = await GroupMembership.findOne({
+      where: {
+        groupId,
+        userId: req.user.id,
+        role: 'admin'
+      }
+    });
+
+    if (!membership && group.createdById !== req.user.id) {
+      return res.status(403).json({ message: 'Not authorized to delete this group. Only admins can delete the group.' });
+    }
+
+    // Soft delete the group
+    group.isActive = false;
+    await group.save();
+
+    res.json({ message: 'Group deleted successfully' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error deleting group' });
+  }
+});
+
 module.exports = router;

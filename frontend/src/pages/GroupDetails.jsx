@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Plus, UserPlus, Upload, FileText, ArrowRight, Trash2, Calendar, DollarSign, MessageSquare } from 'lucide-react';
 
@@ -23,11 +23,13 @@ const fmtMonth = (dateStr) => {
 const GroupDetails = () => {
   const { id } = useParams();
   const { user: currentUser, token, getAuthHeaders } = useAuth();
+  const navigate = useNavigate();
 
   const [group, setGroup] = useState(null);
   const [expenses, setExpenses] = useState([]);
   const [balances, setBalances] = useState({ overall: [], pairwise: [] });
   const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState(false);
 
   // Modals visibility
   const [showAddMember, setShowAddMember] = useState(false);
@@ -114,6 +116,33 @@ const GroupDetails = () => {
   useEffect(() => {
     loadAllData();
   }, [id, token]);
+
+  const handleDeleteGroup = async () => {
+    if (!window.confirm("Are you sure you want to delete this group? All records will be archived.")) {
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      const response = await fetch(`/api/groups/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+
+      if (response.ok) {
+        alert('Group deleted successfully!');
+        navigate('/');
+      } else {
+        const data = await response.json();
+        alert(data.message || 'Failed to delete group.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Connection error deleting group.');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const handleAddMember = async (e) => {
     e.preventDefault();
@@ -305,7 +334,11 @@ const GroupDetails = () => {
   }
 
   // Find overall net balance of current logged in user
-  const userNetBalance = balances.overall.find(o => o.user._id === currentUser._id)?.netBalance || 0;
+  const currentUserIdStr = currentUser?.id ? String(currentUser.id) : (currentUser?._id ? String(currentUser._id) : '');
+  const userNetBalance = balances.overall.find(o => String(o.user._id) === currentUserIdStr || String(o.user.id) === currentUserIdStr)?.netBalance || 0;
+
+  const currentUserMember = group?.members?.find(m => String(m.id) === currentUserIdStr || String(m._id) === currentUserIdStr);
+  const isAdmin = currentUserMember?.role === 'admin' || String(group?.createdById) === currentUserIdStr;
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-8 font-sans text-[#1F1F1F]">
@@ -374,6 +407,17 @@ const GroupDetails = () => {
             <FileText size={12} />
             <span>Review Logs</span>
           </Link>
+
+          {isAdmin && (
+            <button
+              onClick={handleDeleteGroup}
+              disabled={deleting}
+              className="flex items-center space-x-1.5 bg-[#D32F2F] hover:bg-[#B71C1C] text-[#FFFFFF] font-bold py-2 px-4 rounded-none uppercase tracking-wider transition-colors text-xs disabled:opacity-50 cursor-pointer"
+            >
+              <Trash2 size={12} />
+              <span>{deleting ? 'Deleting...' : 'Delete Group'}</span>
+            </button>
+          )}
         </div>
       </div>
 

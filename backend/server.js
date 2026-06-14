@@ -4,12 +4,13 @@ const dotenv = require('dotenv');
 const http = require('http');
 const socketIo = require('socket.io');
 const { connectDB } = require('./config/db');
+const seedDemoData = require('./utils/seed');
 
 // Load environment variables
 dotenv.config();
 
-// Connect to Database
-connectDB();
+// Connect to Database then seed demo users
+connectDB().then(() => seedDemoData());
 
 const app = express();
 const server = http.createServer(app);

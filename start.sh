@@ -1,14 +1,5 @@
 #!/bin/bash
 
-# Ensure MongoDB is running
-if ! pgrep -x "mongod" > /dev/null
-then
-    echo "Starting MongoDB..."
-    mongod --dbpath ./mongodb_data --fork --logpath ./mongodb.log
-else
-    echo "MongoDB is already running."
-fi
-
 # Install backend dependencies
 echo "Installing backend dependencies..."
 cd backend && npm install && cd ..

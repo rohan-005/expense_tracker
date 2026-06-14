@@ -3,10 +3,18 @@ const router = express.Router();
 const fs = require('fs');
 const path = require('path');
 const csv = require('csv-parser');
+const multer = require('multer');
+const { Readable } = require('stream');
 const ImportLog = require('../models/ImportLog');
 const Group = require('../models/Group');
 const { importCSVRows } = require('../utils/csvImporter');
 const { protect } = require('../middleware/auth');
+
+// Multer memory storage setup
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 } // 50MB file size limit
+});
 
 // @desc    Get all import logs
 // @route   GET /api/import/logs
@@ -108,6 +116,59 @@ router.post('/local', protect, async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error during local import' });
+  }
+});
+
+// @desc    Import CSV file uploaded from the client using Multer
+// @route   POST /api/import/file
+// @access  Private
+router.post('/file', protect, upload.single('file'), async (req, res) => {
+  try {
+    const { groupId } = req.body;
+    if (!groupId) {
+      return res.status(400).json({ message: 'groupId is required' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ message: 'Please upload a CSV file' });
+    }
+
+    // Verify group exists
+    const group = await Group.findByPk(groupId);
+    if (!group) {
+      return res.status(404).json({ message: 'Group not found' });
+    }
+
+    const rows = [];
+    const stream = new Readable();
+    stream.push(req.file.buffer);
+    stream.push(null); // Signal end of stream
+
+    stream
+      .pipe(csv())
+      .on('data', (data) => {
+        // Clean keys to lowercase and trim spaces
+        const cleanedRow = {};
+        Object.keys(data).forEach(key => {
+          cleanedRow[key.trim().toLowerCase()] = data[key];
+        });
+        rows.push(cleanedRow);
+      })
+      .on('end', async () => {
+        try {
+          const report = await importCSVRows(groupId, rows, req.user.id);
+          res.json({ message: 'CSV file imported successfully', report });
+        } catch (err) {
+          console.error(err);
+          res.status(500).json({ message: 'Error processing CSV rows', error: err.message });
+        }
+      })
+      .on('error', (err) => {
+        console.error(err);
+        res.status(500).json({ message: 'Error parsing CSV file', error: err.message });
+      });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error during file import' });
   }
 });
 

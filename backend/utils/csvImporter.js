@@ -85,7 +85,7 @@ const parseImportDate = (dateStr) => {
   return { date, issueType, status };
 };
 
-// Core Importer Function
+// Core Importer Function - Optimized for Bulk/Batch insertions to prevent timeouts & connection limits
 const importCSVRows = async (groupId, rows, creatorId) => {
   const reports = [];
   const dbUsers = await User.findAll();
@@ -127,6 +127,12 @@ const importCSVRows = async (groupId, rows, creatorId) => {
   // Keep track of imported expenses in this run to detect duplicates
   const importedExpenses = [];
 
+  // Arrays to hold entities for bulk insertion after the loop
+  const expensesToCreate = [];
+  const settlementsToCreate = [];
+  const importLogsToCreate = [];
+  const rowSplitsMap = new Map(); // Key: rowNumber, Value: Array of splits ({ userId, amountOwed })
+
   for (let idx = 0; idx < rows.length; idx++) {
     const row = rows[idx];
     const rowNum = idx + 2; // Assuming row 1 is header
@@ -148,8 +154,7 @@ const importCSVRows = async (groupId, rows, creatorId) => {
       });
       actionTaken = 'Logged missing payer; pending review';
       rowStatus = 'pending_review';
-      // Default to creator to allow document creation, but flagged
-      paidByUserId = creatorId;
+      paidByUserId = creatorId; // Default fallback
     } else {
       payerUser = getUserByName(row.paid_by);
       if (!payerUser) {
@@ -163,7 +168,6 @@ const importCSVRows = async (groupId, rows, creatorId) => {
         paidByUserId = creatorId; // Default fallback
       } else {
         paidByUserId = payerUser.id;
-        // Verify name alias normalization logging if there was a slight difference
         const cleanName = row.paid_by.trim();
         if (cleanName.toLowerCase() !== payerUser.name.toLowerCase()) {
           issues.push({
@@ -252,13 +256,11 @@ const importCSVRows = async (groupId, rows, creatorId) => {
     }
 
     if (isSettlement) {
-      // Find the recipient from split_with or notes
       let toUserObj = null;
       if (row.split_with) {
         toUserObj = getUserByName(row.split_with);
       }
       if (!toUserObj) {
-        // Fallback or scan note
         const noteWords = noteText.split(/\s+/);
         for (const word of noteWords) {
           const u = getUserByName(word);
@@ -279,21 +281,19 @@ const importCSVRows = async (groupId, rows, creatorId) => {
         toUserObj = { id: creatorId }; // Fallback
       }
 
-      // Save as settlement
-      await Settlement.create({
+      settlementsToCreate.push({
         groupId: groupId,
         fromUserId: paidByUserId,
         toUserId: toUserObj.id,
-        amount: Math.abs(convertedAmount), // Settlements are positive
+        amount: Math.abs(convertedAmount),
         date: parsedDateObj,
         rowNumber: rowNum,
       });
 
       actionTaken = `Imported directly into Settlement table: ${row.paid_by || 'Unknown'} to ${toUserObj.name || 'Unknown'}`;
       
-      // Save import logs for any issues on this settlement row
       if (issues.length === 0) {
-        await ImportLog.create({
+        importLogsToCreate.push({
           rowNumber: rowNum,
           rawData,
           issueType: 'none',
@@ -302,7 +302,7 @@ const importCSVRows = async (groupId, rows, creatorId) => {
         });
       } else {
         for (const iss of issues) {
-          await ImportLog.create({
+          importLogsToCreate.push({
             rowNumber: rowNum,
             rawData,
             issueType: iss.issueType,
@@ -312,14 +312,12 @@ const importCSVRows = async (groupId, rows, creatorId) => {
         }
       }
       reports.push({ rowNumber: rowNum, issueType: issues.map(i => i.issueType).join(', ') || 'Settlement', actionTaken, status: rowStatus });
-      continue; // Move to next row
+      continue;
     }
 
     // 7. Duplicate Checks (Exact and Conflicting)
     let isExactDuplicate = false;
     let isConflictingDuplicate = false;
-
-    // Use pre-fetched active expenses of the group to check similarity in-memory
 
     const sameDateExpenses = allGroupExpenses.filter(e => {
       const d1 = new Date(e.date);
@@ -363,7 +361,7 @@ const importCSVRows = async (groupId, rows, creatorId) => {
     let splitType = (row.split_type || 'equal').trim().toLowerCase();
     const hasSplitDetails = row.split_details && row.split_details.trim() !== '';
     if (splitType === 'equal' && hasSplitDetails) {
-      splitType = 'share'; // override equal with share
+      splitType = 'share';
       issues.push({
         issueType: 'split_type_override',
         status: 'resolved',
@@ -371,8 +369,8 @@ const importCSVRows = async (groupId, rows, creatorId) => {
       });
     }
 
-    // Create the expense record
-    const expense = await Expense.create({
+    // Store expense object details (will bulk insert after loop)
+    const expenseObject = {
       groupId: groupId,
       description: row.description,
       amount: roundedAmount,
@@ -386,17 +384,17 @@ const importCSVRows = async (groupId, rows, creatorId) => {
       notes: row.notes || '',
       isSettlementFlag: false,
       rowNumber: rowNum
-    });
+    };
 
-    importedExpenses.push(expense);
-    allGroupExpenses.push(expense);
+    importedExpenses.push(expenseObject);
+    allGroupExpenses.push(expenseObject);
+    expensesToCreate.push(expenseObject);
 
     // Calculate splits
     const splitWithStr = row.split_with || '';
     const rawSplitMembers = splitWithStr.split(';').map(n => n.trim()).filter(n => n !== '');
     const splitMembers = [];
 
-    // Parse and normalize split members
     for (const memName of rawSplitMembers) {
       const u = getUserByName(memName);
       if (u) {
@@ -411,7 +409,6 @@ const importCSVRows = async (groupId, rows, creatorId) => {
       }
     }
 
-    // Membership dates check: Membership mismatch
     const finalSplitUsers = [];
     for (const userObj of splitMembers) {
       const membership = getMembership(userObj.id);
@@ -440,7 +437,6 @@ const importCSVRows = async (groupId, rows, creatorId) => {
       }
     }
 
-    // Compute split values
     let computedSplits = [];
     if (finalSplitUsers.length > 0) {
       if (splitType === 'equal' || (splitType === 'share' && !hasSplitDetails)) {
@@ -452,7 +448,7 @@ const importCSVRows = async (groupId, rows, creatorId) => {
             owed = round2(convertedAmount - sum);
           }
           sum += owed;
-          computedSplits.push({ expenseId: expense.id, userId: u.id, amountOwed: owed });
+          computedSplits.push({ userId: u.id, amountOwed: owed });
         });
       } else {
         const detailsMap = {};
@@ -477,7 +473,7 @@ const importCSVRows = async (groupId, rows, creatorId) => {
             const baseVal = currency === 'USD' ? rawVal * 83 : rawVal;
             const owed = round2(baseVal);
             sum += owed;
-            computedSplits.push({ expenseId: expense.id, userId: u.id, amountOwed: owed });
+            computedSplits.push({ userId: u.id, amountOwed: owed });
           });
           if (computedSplits.length > 0 && Math.abs(sum - convertedAmount) > 0.01) {
             const lastIdx = computedSplits.length - 1;
@@ -489,7 +485,7 @@ const importCSVRows = async (groupId, rows, creatorId) => {
             const pct = detailsMap[u.id.toString()] || 0;
             const owed = round2((convertedAmount * pct) / 100);
             sum += owed;
-            computedSplits.push({ expenseId: expense.id, userId: u.id, amountOwed: owed });
+            computedSplits.push({ userId: u.id, amountOwed: owed });
           });
           if (computedSplits.length > 0) {
             const lastIdx = computedSplits.length - 1;
@@ -503,7 +499,7 @@ const importCSVRows = async (groupId, rows, creatorId) => {
               const sh = detailsMap[u.id.toString()] || 0;
               const owed = round2((convertedAmount * sh) / totalShares);
               sum += owed;
-              computedSplits.push({ expenseId: expense.id, userId: u.id, amountOwed: owed });
+              computedSplits.push({ userId: u.id, amountOwed: owed });
             });
             if (computedSplits.length > 0) {
               const lastIdx = computedSplits.length - 1;
@@ -518,18 +514,18 @@ const importCSVRows = async (groupId, rows, creatorId) => {
                 owed = round2(convertedAmount - sum);
               }
               sum += owed;
-              computedSplits.push({ expenseId: expense.id, userId: u.id, amountOwed: owed });
+              computedSplits.push({ userId: u.id, amountOwed: owed });
             });
           }
         }
       }
 
-      await Split.bulkCreate(computedSplits);
+      rowSplitsMap.set(rowNum, computedSplits);
     }
 
     // Save logs
     if (issues.length === 0) {
-      await ImportLog.create({
+      importLogsToCreate.push({
         rowNumber: rowNum,
         rawData,
         issueType: 'none',
@@ -538,7 +534,7 @@ const importCSVRows = async (groupId, rows, creatorId) => {
       });
     } else {
       for (const iss of issues) {
-        await ImportLog.create({
+        importLogsToCreate.push({
           rowNumber: rowNum,
           rawData,
           issueType: iss.issueType,
@@ -554,6 +550,43 @@ const importCSVRows = async (groupId, rows, creatorId) => {
       actionTaken: actionTaken || (issues.length > 0 ? issues[0].action : 'Imported normally'),
       status: rowStatus
     });
+  }
+
+  // Perform bulk insertions
+  if (settlementsToCreate.length > 0) {
+    await Settlement.bulkCreate(settlementsToCreate);
+  }
+
+  if (expensesToCreate.length > 0) {
+    const createdExpenses = await Expense.bulkCreate(expensesToCreate, { returning: true });
+    
+    // Map rowNumber to auto-incremented expense ID
+    const expenseIdMap = new Map();
+    createdExpenses.forEach(exp => {
+      expenseIdMap.set(exp.rowNumber, exp.id);
+    });
+
+    const splitsToCreate = [];
+    for (const [rowNum, splits] of rowSplitsMap.entries()) {
+      const expenseId = expenseIdMap.get(rowNum);
+      if (expenseId) {
+        splits.forEach(s => {
+          splitsToCreate.push({
+            expenseId,
+            userId: s.userId,
+            amountOwed: s.amountOwed
+          });
+        });
+      }
+    }
+
+    if (splitsToCreate.length > 0) {
+      await Split.bulkCreate(splitsToCreate);
+    }
+  }
+
+  if (importLogsToCreate.length > 0) {
+    await ImportLog.bulkCreate(importLogsToCreate);
   }
 
   return reports;

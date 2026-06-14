@@ -9,20 +9,23 @@ const CSVImporter = () => {
   const { token, getAuthHeaders } = useAuth();
 
   const [csvText, setCsvText] = useState('');
+  const [file, setFile] = useState(null);
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
   const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const selectedFile = e.target.files[0];
+    if (!selectedFile) return;
+    
+    setFile(selectedFile);
 
     const reader = new FileReader();
     reader.onload = (event) => {
       setCsvText(event.target.result);
     };
-    reader.readAsText(file);
+    reader.readAsText(selectedFile);
   };
 
   const handleLocalImport = async () => {
@@ -54,16 +57,55 @@ const CSVImporter = () => {
 
   const handleSubmitImport = async (e) => {
     e.preventDefault();
-    if (!csvText.trim()) {
+    
+    if (!file && !csvText.trim()) {
       setError('Please upload a file or paste CSV text');
       return;
     }
+
     setError('');
     setSuccessMsg('');
     setReport(null);
     setLoading(true);
 
-    // Parse CSV on client using PapaParse
+    // If actual file is selected, upload via Multer (multipart/form-data)
+    if (file) {
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('groupId', id);
+
+        const authHeaders = getAuthHeaders();
+        const headers = {};
+        Object.keys(authHeaders).forEach(key => {
+          if (key.toLowerCase() !== 'content-type') {
+            headers[key] = authHeaders[key];
+          }
+        });
+
+        const response = await fetch('/api/import/file', {
+          method: 'POST',
+          headers,
+          body: formData
+        });
+
+        const data = await response.json();
+        if (response.ok) {
+          setSuccessMsg(data.message);
+          setReport(data.report || []);
+        } else {
+          setError(data.message || 'Error importing data');
+        }
+      } catch (err) {
+        console.error(err);
+        setError('Server connection error during file import');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // Fallback: If no file but CSV text is pasted, parse locally and upload as JSON
     Papa.parse(csvText, {
       header: true,
       skipEmptyLines: true,

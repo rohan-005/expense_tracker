@@ -270,8 +270,8 @@ router.get('/:id/balances', protect, async (req, res) => {
       return { ...u, _id: u.id };
     });
 
-    // Get all pending review imports to exclude their row numbers
-    const pendingLogs = await ImportLog.findAll({ where: { status: 'pending_review' } });
+    // Get all pending review imports for this group to exclude their row numbers
+    const pendingLogs = await ImportLog.findAll({ where: { groupId: groupId, status: 'pending_review' } });
     const pendingRowNumbers = new Set(pendingLogs.map(l => l.rowNumber));
 
     // Get all active, non-deleted expenses

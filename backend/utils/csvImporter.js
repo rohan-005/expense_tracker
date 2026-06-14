@@ -87,6 +87,9 @@ const parseImportDate = (dateStr) => {
 
 // Core Importer Function - Optimized for Bulk/Batch insertions to prevent timeouts & connection limits
 const importCSVRows = async (groupId, rows, creatorId) => {
+  // Clear any existing import logs for this group
+  await ImportLog.destroy({ where: { groupId } });
+
   const reports = [];
   const dbUsers = await User.findAll();
   
@@ -526,6 +529,7 @@ const importCSVRows = async (groupId, rows, creatorId) => {
     // Save logs
     if (issues.length === 0) {
       importLogsToCreate.push({
+        groupId,
         rowNumber: rowNum,
         rawData,
         issueType: 'none',
@@ -535,6 +539,7 @@ const importCSVRows = async (groupId, rows, creatorId) => {
     } else {
       for (const iss of issues) {
         importLogsToCreate.push({
+          groupId,
           rowNumber: rowNum,
           rawData,
           issueType: iss.issueType,

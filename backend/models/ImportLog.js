@@ -1,5 +1,6 @@
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/db');
+const Group = require('./Group');
 
 const ImportLog = sequelize.define('ImportLog', {
   id: {
@@ -7,12 +8,20 @@ const ImportLog = sequelize.define('ImportLog', {
     autoIncrement: true,
     primaryKey: true,
   },
+  groupId: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: Group,
+      key: 'id',
+    },
+  },
   rowNumber: {
     type: DataTypes.INTEGER,
     allowNull: false,
   },
   rawData: {
-    type: DataTypes.JSON, // Maps to JSON TEXT under SQLite
+    type: DataTypes.JSON, // Maps to JSON TEXT under SQLite/Postgres
     allowNull: false,
   },
   issueType: {
@@ -33,5 +42,9 @@ const ImportLog = sequelize.define('ImportLog', {
   createdAt: 'created_at',
   updatedAt: 'updated_at',
 });
+
+// Associations
+ImportLog.belongsTo(Group, { as: 'group', foreignKey: 'groupId' });
+Group.hasMany(ImportLog, { foreignKey: 'groupId' });
 
 module.exports = ImportLog;

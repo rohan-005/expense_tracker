@@ -16,12 +16,19 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 } // 50MB file size limit
 });
 
-// @desc    Get all import logs
+// @desc    Get import logs (filterable by groupId)
 // @route   GET /api/import/logs
 // @access  Private
 router.get('/logs', protect, async (req, res) => {
   try {
+    const { groupId } = req.query;
+    const whereClause = {};
+    if (groupId) {
+      whereClause.groupId = groupId;
+    }
+
     const logs = await ImportLog.findAll({
+      where: whereClause,
       order: [['rowNumber', 'ASC']]
     });
     
@@ -37,13 +44,19 @@ router.get('/logs', protect, async (req, res) => {
   }
 });
 
-// @desc    Clear import logs (for resetting the demo)
+// @desc    Clear import logs (filterable by groupId)
 // @route   DELETE /api/import/logs
 // @access  Private
 router.delete('/logs', protect, async (req, res) => {
   try {
-    await ImportLog.destroy({ where: {} });
-    res.json({ message: 'All import logs cleared' });
+    const { groupId } = req.query;
+    const whereClause = {};
+    if (groupId) {
+      whereClause.groupId = groupId;
+    }
+
+    await ImportLog.destroy({ where: whereClause });
+    res.json({ message: 'Import logs cleared' });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error clearing import logs' });

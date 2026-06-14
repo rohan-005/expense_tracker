@@ -89,7 +89,7 @@ const ImportLogs = () => {
   const fetchLogs = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/import/logs', { headers: getAuthHeaders() });
+      const response = await fetch(`/api/import/logs?groupId=${id}`, { headers: getAuthHeaders() });
       if (response.ok) {
         const data = await response.json();
         setLogs(data);
@@ -99,7 +99,7 @@ const ImportLogs = () => {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, id]);
 
   useEffect(() => {
     fetchLogs();
@@ -121,10 +121,10 @@ const ImportLogs = () => {
   };
 
   const handleClearLogs = async () => {
-    if (!window.confirm('Clear all import logs? This cannot be undone.')) return;
+    if (!window.confirm('Clear all import logs for this group? This cannot be undone.')) return;
     setClearing(true);
     try {
-      const response = await fetch('/api/import/logs', { method: 'DELETE', headers: getAuthHeaders() });
+      const response = await fetch(`/api/import/logs?groupId=${id}`, { method: 'DELETE', headers: getAuthHeaders() });
       if (response.ok) await fetchLogs();
     } catch (err) {
       console.error(err);

@@ -1,28 +1,39 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Link, useNavigate } from 'react-router-dom';
+import { Eye, EyeOff } from 'lucide-react';
 
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
 
   const demoUsers = [
-    { name: 'Aisha (Admin)', email: 'aisha@example.com' },
-    { name: 'Rohan', email: 'rohan@example.com' },
-    { name: 'Priya', email: 'priya@example.com' },
-    { name: 'Meera (Departed)', email: 'meera@example.com' },
-    { name: 'Dev', email: 'dev@example.com' },
-    { name: 'Sam (New Member)', email: 'sam@example.com' },
+    { name: 'Aisha', label: 'Admin', email: 'aisha@example.com', password: 'password123' },
+    { name: 'Rohan', label: 'Member', email: 'rohan@example.com', password: 'password123' },
+    { name: 'Priya', label: 'Member', email: 'priya@example.com', password: 'password123' },
+    { name: 'Meera', label: 'Departed', email: 'meera@example.com', password: 'password123' },
+    { name: 'Dev', label: 'Member', email: 'dev@example.com', password: 'password123' },
+    { name: 'Sam', label: 'New Member', email: 'sam@example.com', password: 'password123' },
   ];
 
-  const handleDemoSelect = (userEmail) => {
-    setEmail(userEmail);
-    setPassword('password123');
+  // Fill credentials AND auto-submit
+  const handleDemoLogin = async (user) => {
+    setEmail(user.email);
+    setPassword(user.password);
     setError('');
+    setLoading(true);
+    try {
+      await login(user.email, user.password);
+      navigate('/');
+    } catch (err) {
+      setError(err.message || 'Invalid credentials');
+      setLoading(false);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -46,7 +57,7 @@ const Login = () => {
   return (
     <div className="min-h-screen bg-[#FFFFFF] flex items-center justify-center p-4 font-sans text-[#1F1F1F]">
       <div className="w-full max-w-md border border-[#1F1F1F] bg-[#FFFFFF] p-8 rounded-none">
-        
+
         {/* Brand */}
         <div className="flex items-center space-x-2 mb-8">
           <div className="w-6 h-6 bg-[#FF7A1A] rounded-none"></div>
@@ -76,13 +87,23 @@ const Login = () => {
 
           <div>
             <label className="block text-xs uppercase font-bold tracking-wider mb-1">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full border border-[#E8E8E8] bg-[#FFFFFF] px-3 py-2 text-sm rounded-none focus:outline-none focus:border-[#FF7A1A]"
-              placeholder="••••••••"
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full border border-[#E8E8E8] bg-[#FFFFFF] px-3 py-2 pr-10 text-sm rounded-none focus:outline-none focus:border-[#FF7A1A]"
+                placeholder="••••••••"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(v => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#1F1F1F] opacity-40 hover:opacity-80 transition-opacity"
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
           </div>
 
           <button
@@ -101,20 +122,25 @@ const Login = () => {
           </Link>
         </div>
 
-        {/* Quick Demo Select */}
+        {/* Quick Demo Login — click to instantly log in */}
         <div className="mt-8 pt-6 border-t border-[#1F1F1F]">
-          <span className="block text-xs uppercase font-bold tracking-wider mb-3 text-center">
-            Demo Users Quick Login
-          </span>
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs uppercase font-bold tracking-wider">Quick Demo Login</span>
+            <span className="text-[10px] opacity-40 font-mono">pw: password123</span>
+          </div>
           <div className="grid grid-cols-2 gap-2">
             {demoUsers.map((user) => (
               <button
                 key={user.email}
-                onClick={() => handleDemoSelect(user.email)}
-                className="border border-[#E8E8E8] bg-[#F4F4F4] hover:bg-[#E8E8E8] text-left px-3 py-2 text-xs rounded-none transition-colors"
+                onClick={() => handleDemoLogin(user)}
+                disabled={loading}
+                className="border border-[#E8E8E8] bg-[#F4F4F4] hover:bg-[#E8E8E8] hover:border-[#FF7A1A] text-left px-3 py-2 text-xs rounded-none transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <div className="font-bold truncate">{user.name}</div>
-                <div className="opacity-60 truncate">{user.email}</div>
+                <div className="opacity-50 truncate text-[10px]">{user.email}</div>
+                <div className="mt-0.5">
+                  <span className="text-[9px] uppercase font-bold tracking-wider text-[#FF7A1A]">{user.label}</span>
+                </div>
               </button>
             ))}
           </div>
